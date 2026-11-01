@@ -11,7 +11,7 @@ This project packages the vLLM configuration tested on one RTX PRO 4500. The Run
 
 ## Prepare the inference image
 
-The live Pod `fj04zaugwd1u83` now uses `0.2.0`, with automatic monitoring and chat gateway startup. The Docker Hub release digest is `sha256:5389868284fadfd95d8b58499607099580f957756810cbd7684a843f06dc69cd`. Keep published release tags unchanged; use a new version for later code changes.
+The live Pod `fj04zaugwd1u83` now uses `0.3.0`, with automatic monitoring and configurable chat gateway limits. The Docker Hub release digest is `sha256:2bc9682524bfbfcd44067d5cd74ddabc9dc05f02e42559497d3642246b0ae2bb`. Deployed November 1, 2026; the model reached readiness with a 40,960-token context ceiling. Keep published release tags unchanged; use a new version for later code changes.
 
 Build an **x86-64 Linux** image on a machine with Docker and registry access. The Docker Hub namespace for this project is `zihan000`:
 
@@ -19,7 +19,7 @@ Build an **x86-64 Linux** image on a machine with Docker and registry access. Th
 docker buildx build --platform linux/amd64 -t zihan000/qwen-inference:0.2.0 --push .
 ```
 
-Then create a Runpod custom template or update the existing Pod with that image, one RTX PRO 4500 and the existing network volume mounted at `/workspace`. Do not override the image entrypoint. The image starts vLLM automatically and defaults to the tested model and 4096-token, single-sequence configuration. The official base is pinned to vLLM 0.32.0.
+Then create a Runpod custom template or update the existing Pod with that image, one RTX PRO 4500 and the existing network volume mounted at `/workspace`. Do not override the image entrypoint. The image starts vLLM automatically and defaults to the model above with a 40,960-token context and one sequence. This configuration has reached readiness on the live GPU; maximum-length and sustained-load performance have not been benchmarked. Set `MAX_MODEL_LEN` to override it consistently for both vLLM and the chat gateway. Existing Pod environment overrides take precedence; rebuild the image and restart the Pod to apply source changes. The official base is pinned to vLLM 0.32.0.
 
 For automatic metrics collection, set `METRICS_ENABLED=true` and `METRICS_HOST=0.0.0.0` in the Pod environment, expose HTTP port 8888, and retain the existing token file `/workspace/monitoring/metrics-token` on the network volume. The token must contain at least 32 characters. It is not embedded in the image. The relay script is included at `/usr/local/lib/metrics-relay.py`; the older copy on `/workspace` is no longer the startup source. The launcher starts the enabled services on every container start, forwards shutdown, and exits if any service exits. With both `METRICS_ENABLED=false` and `CHAT_ENABLED=false` (the defaults), startup runs vLLM only.
 
@@ -83,3 +83,9 @@ the chat and startup tests remain under `scripts/` and run in the inference imag
 - The manual test reported FlashInfer CUDA toolkit warnings and fallback sampling. Image CUDA compatibility and kernel behavior need validation on the GPU.
 - Model weights live on the network volume, but image dependencies live in the container image; backing up project files and long-lived data separately remains necessary.
 - `MAX_NUM_SEQS=1` deliberately limits concurrent sequences even if the cache reports a higher theoretical capacity. Increase only after load testing.
+
+## Per-request chat limits
+
+The updated frontend can send a `settings` object with `inputCharacters`, `outputTokens`, `contextTokens`, `historyMessages`, `historyBytes`, `requestBytes`, `timeoutSeconds`, and `safetyTokens`. These preferences lower the deployment ceilings in `scripts/chat-gateway.py`; they cannot raise vLLM capacity. The gateway enforces character, byte, history, token, and timeout budgets and forwards only model generation options to vLLM. The newest input character count follows browser UTF-16 length; history/request sizes use UTF-8 bytes. Output plus safety reserve must leave input space. Generation timeout covers tokenization, upstream prefill, and streaming, and cancellation releases gateway capacity.
+
+Authenticated `/health` includes `settingsVersion: 1` and `limits`. Its context ceiling is the smaller of the gateway configuration, its application ceiling, and the running model's `max_model_len` from private `/v1/models`. The model capacity is rechecked per request. If capacity cannot be verified, readiness/generation fails instead of guessing. Rebuild/restart the gateway and deploy the matching frontend together; older gateways do not support these controls. Live smoke tests on November 1, 2026 verified output truncation at 128 tokens, input rejection with a 5-character limit, old-exchange trimming with a 512-token context budget, and rejection above the deployed 40,960-token ceiling. The published image also passed 10 gateway and 8 startup checks.

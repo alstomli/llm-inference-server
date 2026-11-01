@@ -10,7 +10,7 @@ fi
 args=(serve "${MODEL_ID:-avyukth/Qwen3.8-27B-AWQ-INT4}"
   --served-model-name "${SERVED_MODEL_NAME:-qwen}"
   --host "$host" --port "${VLLM_PORT:-8000}"
-  --max-model-len "${MAX_MODEL_LEN:-4096}"
+  --max-model-len "${MAX_MODEL_LEN:-40960}"
   --max-num-seqs "${MAX_NUM_SEQS:-1}"
   --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION:-0.90}"
   --language-model-only)

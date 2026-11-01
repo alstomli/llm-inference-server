@@ -17,7 +17,7 @@ class StartupTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         fake = self.root / 'vllm'
         fake.write_text('''#!/usr/bin/env python3
-import os, sys
+import json, os, sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 if os.environ.get('FAKE_VLLM_EXIT'):
     sys.exit(int(os.environ['FAKE_VLLM_EXIT']))
@@ -25,7 +25,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b'vllm:num_requests_running 0\\n')
+        if self.path == '/v1/models':
+            self.wfile.write(json.dumps({'data': [{'id': 'qwen', 'max_model_len': 40960}]}).encode())
+        else:
+            self.wfile.write(b'vllm:num_requests_running 0\\n')
     def log_message(self, *args):
         pass
 ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()

@@ -12,12 +12,13 @@ TOKEN = 'integration-test-token-' + 'x' * 40
 
 class Model(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200); self.end_headers()
+        data = json.dumps({'data': [{'id': 'qwen', 'max_model_len': 40960}]}).encode() if self.path == '/v1/models' else b''
+        self.send_response(200); self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         if self.path == '/tokenize':
-            data = json.dumps({'count': 5000 if len(body['messages']) > 2 else 100}).encode()
+            data = json.dumps({'count': 50000 if len(body['messages']) > 2 else 100}).encode()
             self.send_response(200); self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
             return
         self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.end_headers()
