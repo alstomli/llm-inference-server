@@ -1,0 +1,23 @@
+services:
+  prometheus:
+    image: zihan000/qwen-inference:prometheus-0.1.1
+    environment:
+      RUNPOD_METRICS_TARGET: hrqjt6otlehqgh-8888.proxy.runpod.net
+      RUNPOD_METRICS_TOKEN: ${RUNPOD_METRICS_TOKEN:?Set metrics token}
+    volumes:
+      - prometheus-test:/prometheus
+    ports:
+      - '127.0.0.1:19090:9090'
+  grafana:
+    image: zihan000/qwen-inference:grafana-0.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?Set Grafana password}
+      PROMETHEUS_URL: http://prometheus:9090
+    volumes:
+      - grafana-test:/var/lib/grafana
+    ports:
+      - '127.0.0.1:13000:3000'
+volumes:
+  prometheus-test:
+  grafana-test:
