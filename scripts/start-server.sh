@@ -13,6 +13,7 @@ args=(serve "${MODEL_ID:-avyukth/Qwen3.8-27B-AWQ-INT4}"
   --max-model-len "${MAX_MODEL_LEN:-40960}"
   --max-num-seqs "${MAX_NUM_SEQS:-1}"
   --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION:-0.90}"
+  --enable-prefix-caching
   --language-model-only)
 if [[ -n "${VLLM_API_KEY:-}" ]]; then
   args+=(--api-key "$VLLM_API_KEY")
