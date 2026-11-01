@@ -1,0 +1,46 @@
+name: Deploy or roll back Runpod image
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'GitHub environment containing the intended Pod configuration'
+        type: environment
+        required: true
+      image:
+        description: 'Image digest: zihan000/qwen-inference@sha256:...'
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: runpod-inference-${{ inputs.target }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    environment: ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Deploy and verify, restoring the previous image on failure
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_CHAT_TOKEN: ${{ secrets.RUNPOD_CHAT_TOKEN }}
+          RUNPOD_POD_ID: ${{ vars.RUNPOD_POD_ID }}
+          DEPLOY_IMAGE: ${{ inputs.image }}
+        run: python scripts/deploy-runpod.py
+      - name: Check metrics separately
+        continue-on-error: true
+        env:
+          RUNPOD_METRICS_TOKEN: ${{ secrets.RUNPOD_METRICS_TOKEN }}
+          RUNPOD_POD_ID: ${{ vars.RUNPOD_POD_ID }}
+        run: |
+          if [[ -z "$RUNPOD_METRICS_TOKEN" ]]; then
+            echo 'Metrics token not configured; metrics check skipped.' >> "$GITHUB_STEP_SUMMARY"
+          elif ! RUNPOD_METRICS_URL="https://${RUNPOD_POD_ID}-8888.proxy.runpod.net" python scripts/check-monitoring.py; then
+            echo 'Metrics check failed; inspect monitoring separately. Deployment was not rolled back.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            echo 'Metrics relay check passed.' >> "$GITHUB_STEP_SUMMARY"
+          fi

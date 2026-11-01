@@ -1,0 +1,50 @@
+name: Build and publish release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New image version (for example 0.4.0)'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: inference-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate version and target
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          # Fail closed if the registry cannot confirm this tag is unused.
+          status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://hub.docker.com/v2/repositories/zihan000/qwen-inference/tags/$VERSION")
+          [[ "$status" == 404 ]] || { echo "Tag exists or registry lookup failed ($status)"; exit 1; }
+      - name: Build and test image
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 -t inference-release .
+          for test in test_metrics_relay.py test_chat_gateway.py test_start_server.py; do
+            docker run --rm --entrypoint python3 -v "$PWD/scripts:/tests:ro" inference-release "/tests/$test"
+          done
+      - name: Log in to Docker Hub
+        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Publish tested image
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          image="zihan000/qwen-inference:$VERSION"
+          docker tag inference-release "$image"
+          docker push "$image"
+          digest=$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')
+          printf 'Commit: `%s`\n\nImage: `%s`\n\nDigest: `%s`\n' "$GITHUB_SHA" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"

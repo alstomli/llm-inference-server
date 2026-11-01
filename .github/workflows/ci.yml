@@ -1,0 +1,27 @@
+name: Inference image checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check syntax
+        run: |
+          python -m compileall -q scripts
+          bash -n scripts/start-server.sh
+          python scripts/test_deploy_runpod.py
+      - name: Build inference image
+        run: docker build --platform linux/amd64 -t inference-ci .
+      - name: Run tests in image without a GPU
+        run: |
+          set -euo pipefail
+          for test in test_metrics_relay.py test_chat_gateway.py test_start_server.py; do
+            docker run --rm --entrypoint python3 -v "$PWD/scripts:/tests:ro" inference-ci "/tests/$test"
+          done

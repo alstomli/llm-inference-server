@@ -1,6 +1,7 @@
 """Verify the authenticated Runpod chat deployment without printing its token."""
 import argparse
 import json
+import os
 from pathlib import Path
 import time
 from urllib.error import HTTPError, URLError
@@ -13,9 +14,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--wait', type=int, default=0, help='Maximum readiness wait in seconds')
     args = parser.parse_args()
-    values = dict(line.split('=', 1) for line in (ROOT.parent / 'qwen-chat/.env.local').read_text().splitlines() if '=' in line and not line.startswith('#'))
-    token = values['RUNPOD_CHAT_TOKEN']
-    base = values.get('RUNPOD_CHAT_URL') or 'https://fj04zaugwd1u83-8001.proxy.runpod.net'
+    local_env = ROOT.parent / 'qwen-chat/.env.local'
+    values = dict(line.split('=', 1) for line in local_env.read_text().splitlines() if '=' in line and not line.startswith('#')) if local_env.exists() else {}
+    token = os.environ.get('RUNPOD_CHAT_TOKEN') or values.get('RUNPOD_CHAT_TOKEN')
+    base = os.environ.get('RUNPOD_CHAT_URL') or values.get('RUNPOD_CHAT_URL') or 'https://fj04zaugwd1u83-8001.proxy.runpod.net'
+    if not token:
+        parser.error('Set RUNPOD_CHAT_TOKEN or configure qwen-chat/.env.local')
+    base = base.rstrip('/')
     deadline = time.monotonic() + args.wait
 
     def request(path, authorization=None, payload=None):

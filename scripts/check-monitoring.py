@@ -1,11 +1,13 @@
 """Check the deployed metrics relay without printing its credential."""
 from pathlib import Path
+import os
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
-TOKEN = (ROOT / '.secrets/metrics-token').read_text().strip()
-BASE = 'https://fj04zaugwd1u83-8888.proxy.runpod.net'
+token_file = ROOT / '.secrets/metrics-token'
+TOKEN = os.environ.get('RUNPOD_METRICS_TOKEN') or (token_file.read_text().strip() if token_file.exists() else '')
+BASE = (os.environ.get('RUNPOD_METRICS_URL') or 'https://fj04zaugwd1u83-8888.proxy.runpod.net').rstrip('/')
 
 
 def expect_status(path, headers, status):
@@ -20,6 +22,8 @@ def expect_status(path, headers, status):
 
 
 if __name__ == '__main__':
+    if not TOKEN:
+        raise SystemExit('Set RUNPOD_METRICS_TOKEN or provide .secrets/metrics-token')
     expect_status('/metrics', {}, 401)
     expect_status('/metrics', {'Authorization': 'Bearer invalid'}, 401)
     headers = {'Authorization': 'Bearer ' + TOKEN}
