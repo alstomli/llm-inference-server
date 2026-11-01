@@ -18,6 +18,7 @@ def api(method, path, body=None):
     request = Request('https://rest.runpod.io/v1' + path,
                       data=json.dumps(body).encode() if body is not None else None,
                       headers={'Authorization': 'Bearer ' + os.environ['RUNPOD_API_KEY'],
+                               'User-Agent': 'llm-inference-deployer/1.0',
                                'Content-Type': 'application/json'}, method=method)
     try:
         with urlopen(request, timeout=30) as response:
