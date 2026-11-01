@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import hmac
 import json
 import os
+import secrets
 from pathlib import Path
 import time
 
@@ -18,7 +19,7 @@ SETTINGS_MAX = {
     'historyMessages': 799, 'historyBytes': 580000, 'requestBytes': MAX_BODY,
     'timeoutSeconds': 2400, 'safetyTokens': 4096,
 }
-SETTINGS_DEFAULT = {**SETTINGS_MAX, 'outputTokens': 7680, 'safetyTokens': 32}
+SETTINGS_DEFAULT = {**SETTINGS_MAX, 'outputTokens': 7680, 'safetyTokens': 32, 'reuseCachedPrefixes': True}
 SETTINGS_MIN = {
     'inputCharacters': 1, 'outputTokens': 128, 'contextTokens': 256,
     'historyMessages': 1, 'historyBytes': 128, 'requestBytes': 1024,
@@ -32,9 +33,11 @@ def validate_settings(value, context):
         settings = {**SETTINGS_DEFAULT, 'contextTokens': min(context, SETTINGS_MAX['contextTokens'])}
         settings['outputTokens'] = min(settings['outputTokens'], settings['contextTokens'] - settings['safetyTokens'] - 1)
     else:
-        if not isinstance(value, dict) or set(value) - set(SETTINGS_MAX):
+        if not isinstance(value, dict) or set(value) - set(SETTINGS_DEFAULT):
             raise ValueError('Invalid chat settings')
         settings = {**SETTINGS_DEFAULT, **value}
+    if type(settings['reuseCachedPrefixes']) is not bool:
+        raise ValueError('Invalid prefix reuse setting')
     for key, maximum in SETTINGS_MAX.items():
         if key == 'contextTokens':
             maximum = min(context, maximum)
@@ -121,7 +124,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             if response.status_code == 200:
                 capacity = await serving_context()
                 return {'ready': True, 'model': model, 'settingsVersion': 1,
-                        'limits': {**SETTINGS_MAX, 'contextTokens': min(context, capacity, SETTINGS_MAX['contextTokens'])}}
+                        'limits': {**SETTINGS_MAX, 'contextTokens': min(context, capacity, SETTINGS_MAX['contextTokens']), 'reuseCachedPrefixes': True}}
         except (httpx.HTTPError, ValueError, TypeError, AttributeError):
             pass
         return error('Model unavailable', 503)
@@ -196,6 +199,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 'model': model, 'messages': conversation, 'stream': True,
                 'max_tokens': maximum, 'temperature': temperature,
                 'chat_template_kwargs': {'enable_thinking': False},
+                **({} if settings['reuseCachedPrefixes'] else {'cache_salt': secrets.token_hex(32)}),
             }), stream=True), timeout=max(0.001, deadline - time.monotonic()))
             if response.status_code != 200:
                 await response.aclose()

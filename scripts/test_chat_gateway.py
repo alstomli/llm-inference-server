@@ -84,6 +84,22 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.client.get(path, headers=AUTH)).status_code, 404)
         self.assertEqual((await self.client.get('/health', headers=AUTH)).status_code, 200)
 
+    async def test_prefix_reuse_uses_unique_server_salts_only_when_disabled(self):
+        self.assertTrue((await self.client.get('/health', headers=AUTH)).json()['limits']['reuseCachedPrefixes'])
+        self.assertEqual((await self.send(cache_salt='client-controlled')).status_code, 200)
+        self.assertNotIn('cache_salt', self.forwarded[-1])
+        settings = {**gateway.SETTINGS_DEFAULT, 'reuseCachedPrefixes': False}
+        salts = []
+        for _ in range(2):
+            self.assertEqual((await self.send(settings=settings, cache_salt='client-controlled')).status_code, 200)
+            salts.append(self.forwarded[-1]['cache_salt'])
+        self.assertNotEqual(salts[0], salts[1])
+        self.assertTrue(all(len(salt) == 64 for salt in salts))
+        for invalid in ['false', 0, None]:
+            self.assertEqual((await self.send(settings={**settings, 'reuseCachedPrefixes': invalid})).status_code, 400)
+        self.assertEqual((await self.send(settings=gateway.SETTINGS_DEFAULT)).status_code, 200)
+        self.assertNotIn('cache_salt', self.forwarded[-1])
+
     async def test_context_trimming_and_server_controlled_model(self):
         response = await self.send([
             {'role': 'user', 'content': 'old'}, {'role': 'assistant', 'content': 'old answer'},
