@@ -1,4 +1,9 @@
 .git
-.env
+.env*
+!.env.example
+.secrets
 monitoring
 README.md
+TODO.md
+__pycache__
+*.log

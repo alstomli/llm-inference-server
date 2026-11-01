@@ -1,13 +1,11 @@
 """Check the deployed metrics relay without printing its credential."""
-import json
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
-TOKEN = (ROOT / 'monitoring/.secrets/metrics-token').read_text().strip()
-BASE = 'https://hrqjt6otlehqgh-8888.proxy.runpod.net'
+TOKEN = (ROOT / '.secrets/metrics-token').read_text().strip()
+BASE = 'https://fj04zaugwd1u83-8888.proxy.runpod.net'
 
 
 def expect_status(path, headers, status):
@@ -31,8 +29,3 @@ if __name__ == '__main__':
         assert metric in text, f'Missing metric: {metric}'
     print('HTTPS endpoint: correct token accepted; missing/wrong tokens rejected; model route blocked.')
     print('Live vLLM and GPU metrics: present.')
-    for query in ('up{job="vllm"}', 'gpu_exporter_up', 'gpu_memory_used_bytes', 'vllm:request_success_total'):
-        url = 'http://127.0.0.1:9090/api/v1/query?' + urlencode({'query': query})
-        with urlopen(url, timeout=15) as response:
-            result = json.load(response)
-        print(query + ': ' + json.dumps([row['value'][1] for row in result['data']['result']]))

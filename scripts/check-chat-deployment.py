@@ -15,7 +15,7 @@ def main():
     args = parser.parse_args()
     values = dict(line.split('=', 1) for line in (ROOT.parent / 'qwen-chat/.env.local').read_text().splitlines() if '=' in line and not line.startswith('#'))
     token = values['RUNPOD_CHAT_TOKEN']
-    base = values.get('RUNPOD_CHAT_URL') or 'https://hrqjt6otlehqgh-8001.proxy.runpod.net'
+    base = values.get('RUNPOD_CHAT_URL') or 'https://fj04zaugwd1u83-8001.proxy.runpod.net'
     deadline = time.monotonic() + args.wait
 
     def request(path, authorization=None, payload=None):
