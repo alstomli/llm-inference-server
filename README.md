@@ -1,5 +1,9 @@
 # Qwen inference server on Runpod
 
+The original BF16 deployment with partial CPU weight offloading on Pod
+`ftntkktzid9f4p` is documented in the [BF16 deployment runbook](deployments/qwen-bf16/README.md).
+Its scripts and configuration are separate from the inference image described below.
+
 ## CI and image releases
 
 GitHub Actions builds the Linux image and runs the existing gateway, relay, and startup tests when pull requests are opened, updated, or reopened, without a GPU. Inference image checks do not run again when a pull request is merged into `main`; they can also be started manually. The **Build and publish release** workflow is manually triggered on `main` with a new version such as `0.4.0`. It tests the image before publishing to Docker Hub and records its commit and image digest in the workflow summary. Configure GitHub Actions secrets `DOCKER_USERNAME` and `DOCKER_PASSWORD` (a Docker Hub access token). The Docker Hub image repository must be publicly readable for the existing-tag check. Never reuse a published version; only this workflow is serialized, so avoid simultaneous external pushes to the same tag.

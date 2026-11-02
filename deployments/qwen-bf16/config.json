@@ -1,0 +1,11 @@
+{
+  "model_id": "Qwen/Qwen3.8-27B",
+  "dtype": "bfloat16",
+  "cpu_offload_gib": 30,
+  "max_model_len": 4096,
+  "max_num_seqs": 1,
+  "gpu_memory_utilization": 0.9,
+  "host": "127.0.0.1",
+  "port": 8000,
+  "served_model_name": "qwen-bf16"
+}
