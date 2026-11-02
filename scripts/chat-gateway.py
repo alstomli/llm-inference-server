@@ -75,9 +75,11 @@ def validate(value):
     return cleaned, maximum, temperature
 
 
-def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None):
+def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None, diagnostics_enabled=None):
     if not isinstance(token, str) or len(token) < 32:
         raise ValueError('A chat token of at least 32 characters is required')
+    if diagnostics_enabled is None:
+        diagnostics_enabled = os.environ.get('CHAT_DIAGNOSTICS_ENABLED') == 'true'
     headers = {}
     if os.environ.get('VLLM_API_KEY'):
         headers['Authorization'] = 'Bearer ' + os.environ['VLLM_API_KEY']
@@ -124,6 +126,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             if response.status_code == 200:
                 capacity = await serving_context()
                 return {'ready': True, 'model': model, 'settingsVersion': 1,
+                        'diagnosticsVersion': 1 if diagnostics_enabled else 0,
                         'limits': {**SETTINGS_MAX, 'contextTokens': min(context, capacity, SETTINGS_MAX['contextTokens']), 'reuseCachedPrefixes': True}}
         except (httpx.HTTPError, ValueError, TypeError, AttributeError):
             pass
@@ -131,14 +134,33 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
 
     @app.post('/v1/chat/completions')
     async def chat(request: Request):
+        requested = request.headers.get('x-chat-diagnostics') == '1'
+        if requested and not diagnostics_enabled:
+            return error('Request diagnostics are disabled', 403)
+        diagnostic = {
+            'version': 1, 'requestId': secrets.token_hex(16), 'model': model,
+            'inputTokensBefore': None, 'inputTokensAfter': None,
+            'lastCountedInputTokens': None, 'outputBudget': None,
+            'safetyReserve': None, 'contextBudget': None,
+            'gatewayTrimmedMessages': 0, 'reuseCachedPrefixes': None,
+        } if requested else None
+
+        def diagnostic_headers():
+            return {'X-Chat-Diagnostics': json.dumps(diagnostic, separators=(',', ':'))} if diagnostic is not None else {}
+
+        def chat_error(message, code):
+            response = error(message, code)
+            response.headers.update(diagnostic_headers())
+            return response
+
         if not request.headers.get('content-type', '').startswith('application/json'):
-            return error('JSON required', 415)
+            return chat_error('JSON required', 415)
         try:
             body = bytearray()
             async for part in request.stream():
                 body.extend(part)
                 if len(body) > MAX_BODY:
-                    return error('Conversation too large', 413)
+                    return chat_error('Conversation too large', 413)
             value = json.loads(body)
             messages, maximum, temperature = validate(value)
             # The fixed body cap applies before parsing; browser limits may only lower it.
@@ -148,8 +170,11 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             if value.get('settings') is not None and maximum != settings['outputTokens']:
                 raise ValueError('Conflicting output budget')
             settings['outputTokens'] = maximum
+            if diagnostic is not None:
+                diagnostic.update(outputBudget=maximum, safetyReserve=settings['safetyTokens'],
+                                  contextBudget=settings['contextTokens'], reuseCachedPrefixes=settings['reuseCachedPrefixes'])
             if len(body) > settings['requestBytes']:
-                return error('Conversation exceeds request byte limit', 413)
+                return chat_error('Conversation exceeds request byte limit', 413)
             if len(messages[-1]['content'].encode('utf-16-le')) // 2 > settings['inputCharacters']:
                 raise ValueError('Input character limit exceeded')
             if len(messages) > settings['historyMessages'] or json_bytes(messages) > settings['historyBytes']:
@@ -157,18 +182,18 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             if maximum + settings['safetyTokens'] >= settings['contextTokens']:
                 raise ValueError('Context budget must leave room for input')
         except (ValueError, UnicodeError):
-            return error('Invalid chat request', 400)
+            return chat_error('Invalid chat request', 400)
         try:
             capacity = await serving_context()
             if settings['contextTokens'] > capacity:
-                return error('Context budget exceeds the running model capacity', 400)
+                return chat_error('Context budget exceeds the running model capacity', 400)
         except (httpx.HTTPError, ValueError, TypeError, AttributeError):
-            return error('Serving context unavailable', 503)
+            return chat_error('Serving context unavailable', 503)
         deadline = time.monotonic() + settings['timeoutSeconds']
         now = time.monotonic()
         recent[:] = [stamp for stamp in recent if stamp > now - 60]
         if lock.locked() or len(recent) >= 20:
-            return error('Model busy; retry shortly', 429)
+            return chat_error('Model busy; retry shortly', 429)
         await lock.acquire()
         recent.append(now)
         response = None
@@ -182,34 +207,43 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 }), timeout=max(0.001, deadline - time.monotonic()))
                 if counts.status_code != 200:
                     lock.release()
-                    return error('Model tokenizer unavailable', 503)
+                    return chat_error('Model tokenizer unavailable', 503)
                 payload = counts.json()
                 count = payload.get('count') if isinstance(payload, dict) else None
                 if type(count) is not int or count < 0:
                     lock.release()
-                    return error('Invalid tokenizer response', 503)
+                    return chat_error('Invalid tokenizer response', 503)
+                if diagnostic is not None:
+                    if diagnostic['inputTokensBefore'] is None:
+                        diagnostic['inputTokensBefore'] = count
+                    diagnostic['lastCountedInputTokens'] = count
                 if count + maximum + settings['safetyTokens'] <= settings['contextTokens']:
+                    if diagnostic is not None:
+                        diagnostic['inputTokensAfter'] = count
                     break
                 if len(messages) <= 1:
                     lock.release()
-                    return error('Message exceeds model context', 400)
+                    return chat_error('Message exceeds model context', 400)
                 messages = messages[2:]
                 trimmed += 2
+                if diagnostic is not None:
+                    diagnostic['gatewayTrimmedMessages'] = trimmed
             response = await asyncio.wait_for(client.send(client.build_request('POST', '/v1/chat/completions', timeout=settings['timeoutSeconds'], json={
                 'model': model, 'messages': conversation, 'stream': True,
                 'max_tokens': maximum, 'temperature': temperature,
+                **({'stream_options': {'include_usage': True}} if diagnostic is not None else {}),
                 'chat_template_kwargs': {'enable_thinking': False},
                 **({} if settings['reuseCachedPrefixes'] else {'cache_salt': secrets.token_hex(32)}),
             }), stream=True), timeout=max(0.001, deadline - time.monotonic()))
             if response.status_code != 200:
                 await response.aclose()
                 lock.release()
-                return error('Model unavailable', 503)
+                return chat_error('Model unavailable', 503)
         except (httpx.HTTPError, ValueError, TypeError, TimeoutError):
             if response is not None:
                 await response.aclose()
             lock.release()
-            return error('Model unavailable', 503)
+            return chat_error('Model unavailable', 503)
         except BaseException:
             if response is not None:
                 await response.aclose()
@@ -231,6 +265,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
 
         return StreamingResponse(generate(), media_type='text/event-stream', headers={
             'X-Context-Trimmed': str(trimmed), 'X-Accel-Buffering': 'no',
+            **diagnostic_headers(),
         })
 
     return app
