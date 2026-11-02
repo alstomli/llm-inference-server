@@ -17,6 +17,7 @@ SSE = b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: [DONE]\n\n'
 class GatewayTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.forwarded = []
+        self.tokenizer_requests = 0
         self.tokenizer_failure = False
         self.tokenizer_invalid = False
         self.model_failure = False
@@ -51,6 +52,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json={'data': [{'id': 'qwen', 'max_model_len': self.model_context}]})
             body = json.loads(request.content)
             if request.url.path == '/tokenize':
+                self.tokenizer_requests += 1
                 await asyncio.sleep(self.tokenize_delay)
                 if self.tokenizer_failure:
                     return httpx.Response(503)
@@ -65,7 +67,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(500, text='internal details must not be exposed')
             return httpx.Response(200, stream=BlockedStream() if self.block or self.reply_delay else httpx.ByteStream(SSE), headers={'content-type': 'text/event-stream'})
 
-        self.app = gateway.create_app(TOKEN, transport=httpx.MockTransport(upstream))
+        self.transport = httpx.MockTransport(upstream)
+        self.app = gateway.create_app(TOKEN, transport=self.transport, diagnostics_enabled=False)
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url='http://test')
 
     async def asyncTearDown(self):
@@ -76,6 +79,69 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         return await self.client.post('/v1/chat/completions', headers=AUTH, json={
             'messages': messages or [{'role': 'user', 'content': 'Hi'}], 'stream': True, **extra,
         })
+
+    async def enable_diagnostics(self):
+        await self.client.aclose()
+        await self.app.state.client.aclose()
+        self.app = gateway.create_app(TOKEN, transport=self.transport, diagnostics_enabled=True)
+        self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url='http://test')
+
+    async def diagnostic_send(self, messages=None, **extra):
+        return await self.client.post('/v1/chat/completions', headers={**AUTH, 'X-Chat-Diagnostics': '1'}, json={
+            'messages': messages or [{'role': 'user', 'content': 'Hi'}], 'stream': True, **extra,
+        })
+
+    async def test_diagnostics_require_server_opt_in_and_authentication(self):
+        self.assertEqual((await self.diagnostic_send()).status_code, 403)
+        self.assertEqual(self.forwarded, [])
+        self.assertEqual((await self.client.get('/health', headers=AUTH)).json()['diagnosticsVersion'], 0)
+        await self.enable_diagnostics()
+        denied = await self.client.post('/v1/chat/completions', headers={'X-Chat-Diagnostics': '1'}, json={})
+        self.assertEqual(denied.status_code, 401)
+        self.assertNotIn('X-Chat-Diagnostics', denied.headers)
+        self.assertEqual((await self.client.get('/health', headers=AUTH)).json()['diagnosticsVersion'], 1)
+
+    async def test_diagnostics_reuse_exact_counts_and_normal_stream_is_unchanged(self):
+        await self.enable_diagnostics()
+        plain = await self.send()
+        self.assertNotIn('X-Chat-Diagnostics', plain.headers)
+        self.assertNotIn('stream_options', self.forwarded[-1])
+        self.assertEqual(self.tokenizer_requests, 1)
+        response = await self.diagnostic_send()
+        record = json.loads(response.headers['X-Chat-Diagnostics'])
+        self.assertEqual(record['inputTokensBefore'], 150)
+        self.assertEqual(record['inputTokensAfter'], 150)
+        self.assertEqual(record['gatewayTrimmedMessages'], 0)
+        self.assertEqual(self.tokenizer_requests, 2)
+        self.assertEqual(self.forwarded[-1]['stream_options'], {'include_usage': True})
+        self.assertEqual(response.content, plain.content)
+        self.assertNotIn('messages', record)
+        self.assertNotIn('Hi', response.headers['X-Chat-Diagnostics'])
+        self.assertNotIn(TOKEN, response.headers['X-Chat-Diagnostics'])
+
+    async def test_diagnostics_report_trimmed_and_rejected_prompts(self):
+        await self.enable_diagnostics()
+        messages = [{'role': 'user', 'content': 'old'}, {'role': 'assistant', 'content': 'answer'}, {'role': 'user', 'content': 'new'}]
+        response = await self.diagnostic_send(messages)
+        record = json.loads(response.headers['X-Chat-Diagnostics'])
+        self.assertEqual((record['inputTokensBefore'], record['inputTokensAfter']), (50000, 150))
+        self.assertEqual(record['gatewayTrimmedMessages'], 2)
+        self.assertEqual(self.tokenizer_requests, 2)
+        response = await self.diagnostic_send(messages[:2] + messages)
+        self.assertEqual(json.loads(response.headers['X-Chat-Diagnostics'])['gatewayTrimmedMessages'], 4)
+        self.assertEqual(self.tokenizer_requests, 5)
+        self.oversized = True
+        response = await self.diagnostic_send()
+        self.assertEqual(response.status_code, 400)
+        record = json.loads(response.headers['X-Chat-Diagnostics'])
+        self.assertEqual(record['inputTokensBefore'], 50000)
+        self.assertEqual(record['lastCountedInputTokens'], 50000)
+        self.assertIsNone(record['inputTokensAfter'])
+        self.assertEqual(len(self.forwarded), 2)
+        self.oversized = False; self.tokenizer_failure = True
+        response = await self.diagnostic_send()
+        self.assertEqual(response.status_code, 503)
+        self.assertIsNone(json.loads(response.headers['X-Chat-Diagnostics'])['inputTokensBefore'])
 
     async def test_authentication_and_route_isolation(self):
         for headers in ({}, {'Authorization': 'Bearer wrong'}):
