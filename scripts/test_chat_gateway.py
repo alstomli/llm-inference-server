@@ -2,6 +2,7 @@
 import asyncio
 import importlib.util
 import json
+import re
 from pathlib import Path
 import unittest
 import httpx
@@ -26,6 +27,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.model_context = 40960
         self.tokenize_delay = 0
         self.reply_delay = 0
+        self.stream_parts = None
         self.block = False
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
@@ -44,6 +46,12 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
 
             async def aclose(self):
                 owner.closed = True
+
+        class FragmentedStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                for part in owner.stream_parts:
+                    await asyncio.sleep(0.01)
+                    yield part
 
         async def upstream(request):
             if request.url.path == '/health':
@@ -65,7 +73,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             self.forwarded.append(body)
             if self.model_failure:
                 return httpx.Response(500, text='internal details must not be exposed')
-            return httpx.Response(200, stream=BlockedStream() if self.block or self.reply_delay else httpx.ByteStream(SSE), headers={'content-type': 'text/event-stream'})
+            stream = FragmentedStream() if self.stream_parts is not None else BlockedStream() if self.block or self.reply_delay else httpx.ByteStream(SSE)
+            return httpx.Response(200, stream=stream, headers={'content-type': 'text/event-stream'})
 
         self.transport = httpx.MockTransport(upstream)
         self.app = gateway.create_app(TOKEN, transport=self.transport, diagnostics_enabled=False)
@@ -114,10 +123,46 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record['gatewayTrimmedMessages'], 0)
         self.assertEqual(self.tokenizer_requests, 2)
         self.assertEqual(self.forwarded[-1]['stream_options'], {'include_usage': True})
-        self.assertEqual(response.content, plain.content)
+        self.assertEqual(re.sub(rb'event: chat-timing\ndata: [^\n]+\n\n', b'', response.content), plain.content)
+        self.assertNotIn(b'chat-timing', plain.content)
         self.assertNotIn('messages', record)
         self.assertNotIn('Hi', response.headers['X-Chat-Diagnostics'])
         self.assertNotIn(TOKEN, response.headers['X-Chat-Diagnostics'])
+
+    async def test_timing_observes_content_events_across_utf8_and_network_boundaries(self):
+        await self.enable_diagnostics()
+        self.tokenize_delay = 0.025
+        content = 'data: {"choices":[{"delta":{"content":"你好"}}]}\r\n\r\n'.encode()
+        split = content.index('你'.encode()) + 1
+        self.stream_parts = [b'data: {"choices":[{"delta":{"role":"assistant","content":""}}]}\n\n',
+                             content[:split], content[split:],
+                             b'data: {"choices":[],"usage":{"prompt_tokens":150,"completion_tokens":2}}\n\n',
+                             b'data: [DO', b'NE]\n\n']
+        response = await self.diagnostic_send([
+            {'role': 'user', 'content': 'old'}, {'role': 'assistant', 'content': 'answer'}, {'role': 'user', 'content': 'new'}])
+        event = json.loads(re.search(rb'event: chat-timing\ndata: ([^\n]+)', response.content)[1])
+        self.assertEqual(event['requestId'], json.loads(response.headers['X-Chat-Diagnostics'])['requestId'])
+        timing = event['timings']
+        self.assertGreaterEqual(timing['contextFitMs'], 40)  # Both tokenizer calls, including trimming.
+        self.assertGreaterEqual(timing['upstreamFirstContentMs'], 20)  # Ignore role/empty content.
+        self.assertGreater(timing['gatewayFirstContentMs'], timing['upstreamFirstContentMs'])
+        self.assertGreater(timing['gatewayTotalMs'], timing['gatewayFirstContentMs'])
+        self.assertEqual(response.content.count(b'event: chat-timing'), 1)
+        self.assertLess(response.content.index(b'event: chat-timing'), response.content.index(b'data: [DONE]'))
+        self.assertEqual(re.sub(rb'event: chat-timing\ndata: [^\n]+\n\n', b'', response.content), b''.join(self.stream_parts))
+
+    async def test_timing_keeps_missing_first_content_unavailable_on_timeout(self):
+        await self.enable_diagnostics()
+        self.reply_delay = 1.2
+        response = await self.diagnostic_send(settings={**gateway.SETTINGS_DEFAULT, 'timeoutSeconds': 1})
+        event = json.loads(re.search(rb'event: chat-timing\ndata: ([^\n]+)', response.content)[1])
+        self.assertIsNone(event['timings']['upstreamFirstContentMs'])
+        self.assertIsNone(event['timings']['gatewayFirstContentMs'])
+        self.assertGreaterEqual(event['timings']['gatewayTotalMs'], 900)
+        self.assertIn(b'interrupted', response.content)
+        self.assertTrue(self.closed)
+        self.reply_delay = 0
+        self.assertEqual((await self.send()).status_code, 200)
 
     async def test_diagnostics_report_trimmed_and_rejected_prompts(self):
         await self.enable_diagnostics()

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import hmac
 import json
 import os
+import re
 import secrets
 from pathlib import Path
 import time
@@ -134,6 +135,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
 
     @app.post('/v1/chat/completions')
     async def chat(request: Request):
+        request_started = time.monotonic()
         requested = request.headers.get('x-chat-diagnostics') == '1'
         if requested and not diagnostics_enabled:
             return error('Request diagnostics are disabled', 403)
@@ -197,6 +199,9 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
         await lock.acquire()
         recent.append(now)
         response = None
+        context_started = time.monotonic()
+        timing = {'contextFitMs': None, 'upstreamFirstContentMs': None,
+                  'gatewayFirstContentMs': None, 'gatewayTotalMs': None}
         try:
             trimmed = 0
             while True:
@@ -228,6 +233,8 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 trimmed += 2
                 if diagnostic is not None:
                     diagnostic['gatewayTrimmedMessages'] = trimmed
+            timing['contextFitMs'] = (time.monotonic() - context_started) * 1000
+            upstream_started = time.monotonic()
             response = await asyncio.wait_for(client.send(client.build_request('POST', '/v1/chat/completions', timeout=settings['timeoutSeconds'], json={
                 'model': model, 'messages': conversation, 'stream': True,
                 'max_tokens': maximum, 'temperature': temperature,
@@ -251,11 +258,50 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             raise
 
         async def generate():
+            buffer = b''
+            timing_sent = False
+
+            def timing_event():
+                timing['gatewayTotalMs'] = (time.monotonic() - request_started) * 1000
+                data = {'version': 1, 'requestId': diagnostic['requestId'],
+                        'timings': {key: round(value, 3) if value is not None else None
+                                    for key, value in timing.items()}}
+                return ('event: chat-timing\ndata: ' + json.dumps(data, separators=(',', ':')) + '\n\n').encode()
+
             try:
                 async with asyncio.timeout(max(0.001, deadline - time.monotonic())):
                     async for part in response.aiter_bytes():
-                        yield part
-            except (TimeoutError, httpx.HTTPError):
+                        if diagnostic is None:
+                            yield part
+                            continue
+                        # Observe complete SSE events, not transport chunks. Preserve their bytes.
+                        buffer += part
+                        while (boundary := re.search(rb'\r?\n\r?\n', buffer)) is not None:
+                            frame, buffer = buffer[:boundary.end()], buffer[boundary.end():]
+                            data = b'\n'.join(line[5:].lstrip(b' ') for line in frame.splitlines() if line.startswith(b'data:'))
+                            if data == b'[DONE]' and not timing_sent:
+                                yield timing_event()
+                                timing_sent = True
+                            elif timing['upstreamFirstContentMs'] is None:
+                                try:
+                                    item = json.loads(data)
+                                    content = item.get('choices', [{}])[0].get('delta', {}).get('content')
+                                    if isinstance(content, str) and content:
+                                        observed = time.monotonic()
+                                        timing['upstreamFirstContentMs'] = (observed - upstream_started) * 1000
+                                        timing['gatewayFirstContentMs'] = (observed - request_started) * 1000
+                                except (ValueError, IndexError, AttributeError, TypeError):
+                                    pass
+                            yield frame
+                        if len(buffer) > 1_048_576:
+                            raise ValueError('Upstream SSE event too large')
+                    if buffer:
+                        yield buffer + b'\n\n'
+                    if diagnostic is not None and not timing_sent:
+                        yield timing_event()
+            except (TimeoutError, httpx.HTTPError, ValueError):
+                if diagnostic is not None and not timing_sent:
+                    yield timing_event()
                 yield b'data: {"error":{"message":"The model response was interrupted. Please retry."}}\n\ndata: [DONE]\n\n'
             finally:
                 try:
