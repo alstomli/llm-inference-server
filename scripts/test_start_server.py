@@ -137,6 +137,7 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.start(METRICS_ENABLED='false', FAKE_ARG_FILE=str(args_file))
         self.ready(8000)
         args = json.loads(args_file.read_text())
+        self.assertEqual(args[args.index('--max-num-seqs') + 1], '2')
         buckets = json.loads(args[args.index('--custom-histogram-buckets') + 1])
         self.assertEqual(set(buckets), {'time_to_first_token'})
         expected = [0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.25, 0.75]
@@ -148,6 +149,15 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.start(METRICS_ENABLED='false', CHAT_ENABLED='true')
         self.assertIn(b'"ready":true', self.ready(self.chat_port, True, '/health'))
         self.closed(self.port)
+
+    def test_single_sequence_override_also_lowers_gateway_concurrency(self):
+        args_file = self.root / 'vllm-args.json'
+        self.start(METRICS_ENABLED='false', CHAT_ENABLED='true', MAX_NUM_SEQS='1', FAKE_ARG_FILE=str(args_file))
+        health = json.loads(self.ready(self.chat_port, True, '/health'))
+        args = json.loads(args_file.read_text())
+        self.assertEqual(args[args.index('--max-num-seqs') + 1], '1')
+        self.assertEqual(health['admission']['maxConcurrentRequests'], 1)
+        self.assertEqual(health['admission']['maxWaitingRequests'], 6)
 
     def test_both_gateways_start_and_chat_failure_stops_every_service(self):
         self.start(CHAT_ENABLED='true')
