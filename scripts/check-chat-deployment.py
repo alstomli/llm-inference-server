@@ -17,7 +17,7 @@ def main():
     local_env = ROOT.parent / 'qwen-chat/.env.local'
     values = dict(line.split('=', 1) for line in local_env.read_text().splitlines() if '=' in line and not line.startswith('#')) if local_env.exists() else {}
     token = os.environ.get('RUNPOD_CHAT_TOKEN') or values.get('RUNPOD_CHAT_TOKEN')
-    base = os.environ.get('RUNPOD_CHAT_URL') or values.get('RUNPOD_CHAT_URL') or 'https://fj04zaugwd1u83-8001.proxy.runpod.net'
+    base = os.environ.get('RUNPOD_CHAT_URL') or values.get('RUNPOD_CHAT_URL') or 'https://rp93m3noz3l9lt-8001.proxy.runpod.net'
     if not token:
         parser.error('Set RUNPOD_CHAT_TOKEN or configure qwen-chat/.env.local')
     base = base.rstrip('/')

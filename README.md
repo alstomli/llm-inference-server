@@ -21,7 +21,7 @@ This project packages the vLLM configuration tested on one RTX PRO 4500. The Run
 
 ## Prepare the inference image
 
-The live Pod `fj04zaugwd1u83` now uses `0.3.0`, with automatic monitoring and configurable chat gateway limits. The Docker Hub release digest is `sha256:2bc9682524bfbfcd44067d5cd74ddabc9dc05f02e42559497d3642246b0ae2bb`. Deployed November 1, 2026; the model reached readiness with a 40,960-token context ceiling. Keep published release tags unchanged; use a new version for later code changes.
+The live Pod migrated to `rp93m3noz3l9lt` on November 2, 2026, with automatic monitoring and configurable chat gateway limits. Its configured image is `zihan000/qwen-inference@sha256:e52015057d9e1826c059df3683790ceea28f7711c2692189e1535a75634417ba`; the model is ready with a 40,960-token context ceiling. Keep published release tags unchanged; use a new version for later code changes.
 
 Build an **x86-64 Linux** image on a machine with Docker and registry access. The Docker Hub namespace for this project is `zihan000`:
 
@@ -47,7 +47,7 @@ Test a replacement Pod before retiring the existing Pod. A network volume is tie
 
 See [the chatbot project](https://github.com/alstomli/qwen-chat) for the frontend and later deployment instructions. `scripts/chat-gateway.py` exposes only authenticated readiness and streaming chat routes, counts the actual vLLM chat-template tokens before generation, trims old exchanges to fit the context, and limits concurrent generation to one request. It uses a separate chat token; the metrics token is not reused. Set `CHAT_ENABLED=true`, `CHAT_HOST=0.0.0.0`, `CHAT_PORT=8001`, and retain `/workspace/chat/chat-token` on the persistent volume when deploying. Keep vLLM private, retain the existing monitoring settings, and expose port 8001 only when ready to publish the authenticated gateway. Without `CHAT_ENABLED=true`, existing inference/monitoring behavior is preserved.
 
-The deployed gateway origin is `https://fj04zaugwd1u83-8001.proxy.runpod.net`. The matching chat token is retained in the local chatbot's ignored `.env.local` and on the Pod's persistent volume; no credential is stored in the image. Verify it with `python scripts/check-chat-deployment.py --wait 420`. This checks readiness and a streamed response to a short greeting. Verify Railway collection with `python ../llm-grafana/scripts/check-deployment.py`.
+The deployed gateway origin is `https://rp93m3noz3l9lt-8001.proxy.runpod.net`. The matching chat token is retained in the local chatbot's ignored `.env.local` and on the Pod's persistent volume; no credential is stored in the image. Verify it with `python scripts/check-chat-deployment.py --wait 420`. This checks readiness and a streamed response to a short greeting. Verify Railway collection with `python ../llm-grafana/scripts/check-deployment.py`.
 
 Live validation completed on 2026-10-31 (America/New_York): missing/wrong chat tokens rejected; unrelated routes blocked; model ready; oversized earlier chat turns trimmed; a real Qwen response streamed to `[DONE]`. The local Next.js interface also returned a real model reply. Railway inference and GPU collection both returned healthy (`1`).
 
@@ -80,9 +80,11 @@ Deploy or run the monitoring services from their own repositories:
 - [llm-prometheus](https://github.com/alstomli/llm-prometheus): scrape target,
   retention settings, collector image, and local collector checks.
 
-The current metrics origin is `https://fj04zaugwd1u83-8888.proxy.runpod.net`.
+The current metrics origin is `https://rp93m3noz3l9lt-8888.proxy.runpod.net`.
 After a Pod migration, update `RUNPOD_METRICS_TARGET` in Prometheus and
-`RUNPOD_CHAT_URL` in the frontend deployment.
+`RUNPOD_CHAT_URL` in the frontend deployment. Also update `RUNPOD_POD_ID` in
+the GitHub deployment environment (`prod` currently uses `rp93m3noz3l9lt`)
+so future deployment workflows target the migrated Pod.
 
 For local relay verification, retain the token in the ignored
 `.secrets/metrics-token` file and run `python scripts/check-monitoring.py`.
