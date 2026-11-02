@@ -1,4 +1,5 @@
 """Run inside the inference image: exercise startup without loading a GPU model."""
+import json
 import os
 from pathlib import Path
 import signal
@@ -19,6 +20,9 @@ class StartupTests(unittest.TestCase):
         fake.write_text('''#!/usr/bin/env python3
 import json, os, sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+if os.environ.get('FAKE_ARG_FILE'):
+    with open(os.environ['FAKE_ARG_FILE'], 'w') as f:
+        json.dump(sys.argv[1:], f)
 if os.environ.get('FAKE_VLLM_EXIT'):
     sys.exit(int(os.environ['FAKE_VLLM_EXIT']))
 class Handler(BaseHTTPRequestHandler):
@@ -127,6 +131,18 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.start(METRICS_ENABLED='false')
         self.ready(8000)
         self.closed(self.port)
+
+    def test_ttft_buckets_cover_one_to_five_seconds_and_keep_other_bounds(self):
+        args_file = self.root / 'vllm-args.json'
+        self.start(METRICS_ENABLED='false', FAKE_ARG_FILE=str(args_file))
+        self.ready(8000)
+        args = json.loads(args_file.read_text())
+        buckets = json.loads(args[args.index('--custom-histogram-buckets') + 1])
+        self.assertEqual(set(buckets), {'time_to_first_token'})
+        expected = [0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75]
+        expected += [i / 10 for i in range(10, 51)]
+        expected += [7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0]
+        self.assertEqual(buckets['time_to_first_token'], expected)
 
     def test_chat_only_starts_its_gateway_without_metrics(self):
         self.start(METRICS_ENABLED='false', CHAT_ENABLED='true')
