@@ -10,6 +10,11 @@ on:
         description: 'Image digest: zihan000/qwen-inference@sha256:...'
         type: string
         required: true
+      max_num_seqs:
+        description: 'Optional MAX_NUM_SEQS override: 1 or 2 (empty preserves current environment)'
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -29,6 +34,7 @@ jobs:
           RUNPOD_CHAT_TOKEN: ${{ secrets.RUNPOD_CHAT_TOKEN }}
           RUNPOD_POD_ID: ${{ vars.RUNPOD_POD_ID }}
           DEPLOY_IMAGE: ${{ inputs.image }}
+          DEPLOY_MAX_NUM_SEQS: ${{ inputs.max_num_seqs }}
         run: python scripts/deploy-runpod.py
       - name: Check metrics separately
         continue-on-error: true
