@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Authenticated, streaming chat-only ingress for the private vLLM server."""
 import asyncio
+from collections import deque
 from contextlib import asynccontextmanager
 import hmac
 import json
@@ -27,6 +28,41 @@ SETTINGS_MIN = {
     'timeoutSeconds': 1, 'safetyTokens': 0,
 }
 SYSTEM = 'You are Qwen, a helpful personal assistant. Answer clearly and directly. Use Markdown when helpful.'
+
+
+class AdmissionQueue:
+    """FIFO reservations owned by one event loop; granted slots include stream lifetime."""
+    def __init__(self, concurrency=2, queue_limit=6):
+        if type(concurrency) is not int or concurrency < 1 or type(queue_limit) is not int or queue_limit < 0:
+            raise ValueError('Invalid admission limits')
+        self.concurrency = concurrency
+        self.queue_limit = queue_limit
+        self.active = set()
+        self.waiting = deque()
+
+    def reserve(self):
+        ticket = asyncio.get_running_loop().create_future()
+        if len(self.active) < self.concurrency and not self.waiting:
+            self.active.add(ticket)
+            ticket.set_result(None)
+        elif len(self.waiting) < self.queue_limit:
+            self.waiting.append(ticket)
+        else:
+            return None
+        return ticket
+
+    def release(self, ticket):
+        if ticket in self.active:
+            self.active.remove(ticket)
+        elif ticket in self.waiting:
+            self.waiting.remove(ticket)
+            ticket.cancel()
+        else:
+            return  # Cleanup can race with cancellation; release only once.
+        while self.waiting and len(self.active) < self.concurrency:
+            next_ticket = self.waiting.popleft()
+            self.active.add(next_ticket)
+            next_ticket.set_result(None)
 
 
 def validate_settings(value, context):
@@ -76,7 +112,7 @@ def validate(value):
     return cleaned, maximum, temperature
 
 
-def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None, diagnostics_enabled=None):
+def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None, diagnostics_enabled=None, concurrency=2):
     if not isinstance(token, str) or len(token) < 32:
         raise ValueError('A chat token of at least 32 characters is required')
     if diagnostics_enabled is None:
@@ -86,7 +122,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
         headers['Authorization'] = 'Bearer ' + os.environ['VLLM_API_KEY']
     client = httpx.AsyncClient(base_url=upstream, headers=headers, transport=transport,
                                timeout=httpx.Timeout(60, connect=5), follow_redirects=False)
-    lock = asyncio.Lock()
+    admission = AdmissionQueue(concurrency=concurrency)
     recent = []
 
     @asynccontextmanager
@@ -96,6 +132,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.client = client
+    app.state.admission = admission
 
     def error(message, code):
         return JSONResponse({'error': message}, status_code=code, headers={'Cache-Control': 'no-store'})
@@ -128,6 +165,8 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 capacity = await serving_context()
                 return {'ready': True, 'model': model, 'settingsVersion': 1,
                         'diagnosticsVersion': 1 if diagnostics_enabled else 0,
+                        'admission': {'activeRequests': len(admission.active), 'waitingRequests': len(admission.waiting),
+                                      'maxConcurrentRequests': admission.concurrency, 'maxWaitingRequests': admission.queue_limit},
                         'limits': {**SETTINGS_MAX, 'contextTokens': min(context, capacity, SETTINGS_MAX['contextTokens']), 'reuseCachedPrefixes': True}}
         except (httpx.HTTPError, ValueError, TypeError, AttributeError):
             pass
@@ -150,9 +189,11 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
         def diagnostic_headers():
             return {'X-Chat-Diagnostics': json.dumps(diagnostic, separators=(',', ':'))} if diagnostic is not None else {}
 
-        def chat_error(message, code):
+        def chat_error(message, code, rejection=None):
             response = error(message, code)
             response.headers.update(diagnostic_headers())
+            if rejection is not None:
+                response.headers['X-Chat-Rejection'] = rejection
             return response
 
         if not request.headers.get('content-type', '').startswith('application/json'):
@@ -185,19 +226,52 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 raise ValueError('Context budget must leave room for input')
         except (ValueError, UnicodeError):
             return chat_error('Invalid chat request', 400)
-        try:
-            capacity = await serving_context()
-            if settings['contextTokens'] > capacity:
-                return chat_error('Context budget exceeds the running model capacity', 400)
-        except (httpx.HTTPError, ValueError, TypeError, AttributeError):
-            return chat_error('Serving context unavailable', 503)
         deadline = time.monotonic() + settings['timeoutSeconds']
         now = time.monotonic()
         recent[:] = [stamp for stamp in recent if stamp > now - 60]
-        if lock.locked() or len(recent) >= 20:
-            return chat_error('Model busy; retry shortly', 429)
-        await lock.acquire()
+        if len(recent) >= 20:
+            return chat_error('Chat rate limit reached; retry shortly', 429, 'rate_limit')
+        ticket = admission.reserve()
+        if ticket is None:
+            return chat_error('Chat queue is full; retry shortly', 429, 'queue_full')
         recent.append(now)
+
+        async def disconnected():
+            # Await receive normally: is_disconnected's cancelled polling scope can
+            # miss disconnects behind BaseHTTPMiddleware's receive channel.
+            while (await request.receive())['type'] != 'http.disconnect':
+                pass
+
+        disconnect = asyncio.create_task(disconnected())
+        try:
+            ready, _ = await asyncio.wait({ticket, disconnect}, timeout=max(0, deadline - time.monotonic()), return_when=asyncio.FIRST_COMPLETED)
+            if disconnect in ready:
+                admission.release(ticket)
+                return chat_error('Request cancelled', 499)
+            if ticket not in ready:
+                admission.release(ticket)
+                return chat_error('Request timed out waiting for the model', 504, 'queue_timeout')
+        except BaseException:
+            admission.release(ticket)
+            raise
+        finally:
+            disconnect.cancel()
+            try:
+                await asyncio.gather(disconnect, return_exceptions=True)
+            except BaseException:
+                admission.release(ticket)
+                raise
+        try:
+            capacity = await asyncio.wait_for(serving_context(), timeout=max(0.001, deadline - time.monotonic()))
+            if settings['contextTokens'] > capacity:
+                admission.release(ticket)
+                return chat_error('Context budget exceeds the running model capacity', 400)
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError, TimeoutError):
+            admission.release(ticket)
+            return chat_error('Serving context unavailable', 503)
+        except BaseException:
+            admission.release(ticket)
+            raise
         response = None
         context_started = time.monotonic()
         timing = {'contextFitMs': None, 'upstreamFirstContentMs': None,
@@ -211,12 +285,12 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                     'chat_template_kwargs': {'enable_thinking': False},
                 }), timeout=max(0.001, deadline - time.monotonic()))
                 if counts.status_code != 200:
-                    lock.release()
+                    admission.release(ticket)
                     return chat_error('Model tokenizer unavailable', 503)
                 payload = counts.json()
                 count = payload.get('count') if isinstance(payload, dict) else None
                 if type(count) is not int or count < 0:
-                    lock.release()
+                    admission.release(ticket)
                     return chat_error('Invalid tokenizer response', 503)
                 if diagnostic is not None:
                     if diagnostic['inputTokensBefore'] is None:
@@ -227,7 +301,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                         diagnostic['inputTokensAfter'] = count
                     break
                 if len(messages) <= 1:
-                    lock.release()
+                    admission.release(ticket)
                     return chat_error('Message exceeds model context', 400)
                 messages = messages[2:]
                 trimmed += 2
@@ -244,17 +318,21 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             }), stream=True), timeout=max(0.001, deadline - time.monotonic()))
             if response.status_code != 200:
                 await response.aclose()
-                lock.release()
+                admission.release(ticket)
                 return chat_error('Model unavailable', 503)
         except (httpx.HTTPError, ValueError, TypeError, TimeoutError):
-            if response is not None:
-                await response.aclose()
-            lock.release()
+            try:
+                if response is not None:
+                    await response.aclose()
+            finally:
+                admission.release(ticket)
             return chat_error('Model unavailable', 503)
         except BaseException:
-            if response is not None:
-                await response.aclose()
-            lock.release()
+            try:
+                if response is not None:
+                    await response.aclose()
+            finally:
+                admission.release(ticket)
             raise
 
         async def generate():
@@ -307,7 +385,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 try:
                     await response.aclose()
                 finally:
-                    lock.release()
+                    admission.release(ticket)
 
         return StreamingResponse(generate(), media_type='text/event-stream', headers={
             'X-Context-Trimmed': str(trimmed), 'X-Accel-Buffering': 'no',
@@ -322,6 +400,7 @@ if __name__ == '__main__':
     secret = Path(os.environ.get('CHAT_TOKEN_FILE', '/workspace/chat/chat-token')).read_text().strip()
     app = create_app(secret, model=os.environ.get('SERVED_MODEL_NAME', 'qwen'),
                      upstream='http://127.0.0.1:' + os.environ.get('VLLM_PORT', '8000'),
-                     context=int(os.environ.get('MAX_MODEL_LEN', '40960')))
+                     context=int(os.environ.get('MAX_MODEL_LEN', '40960')),
+                     concurrency=min(2, int(os.environ.get('MAX_NUM_SEQS', '2'))))
     uvicorn.run(app, host=os.environ.get('CHAT_HOST', '127.0.0.1'),
                 port=int(os.environ.get('CHAT_PORT', '8001')), access_log=False)

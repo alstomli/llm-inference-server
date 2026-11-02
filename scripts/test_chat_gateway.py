@@ -32,7 +32,23 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
         self.closed = False
+        self.blocked_prompts = set()
+        self.started_prompts = []
+        self.finished_prompts = set()
+        self.prompt_releases = {}
         owner = self
+
+        class ControlledStream(httpx.AsyncByteStream):
+            def __init__(self, prompt):
+                self.prompt = prompt
+
+            async def __aiter__(self):
+                owner.started_prompts.append(self.prompt)
+                await owner.prompt_releases.setdefault(self.prompt, asyncio.Event()).wait()
+                yield SSE
+
+            async def aclose(self):
+                owner.finished_prompts.add(self.prompt)
 
         class BlockedStream(httpx.AsyncByteStream):
             async def __aiter__(self):
@@ -73,7 +89,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             self.forwarded.append(body)
             if self.model_failure:
                 return httpx.Response(500, text='internal details must not be exposed')
-            stream = FragmentedStream() if self.stream_parts is not None else BlockedStream() if self.block or self.reply_delay else httpx.ByteStream(SSE)
+            prompt = body['messages'][-1]['content']
+            stream = ControlledStream(prompt) if prompt in self.blocked_prompts else FragmentedStream() if self.stream_parts is not None else BlockedStream() if self.block or self.reply_delay else httpx.ByteStream(SSE)
             return httpx.Response(200, stream=stream, headers={'content-type': 'text/event-stream'})
 
         self.transport = httpx.MockTransport(upstream)
@@ -302,11 +319,146 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.model_failure = False
         self.assertEqual((await self.send()).status_code, 200)
 
-    async def test_busy_generation_rejected_and_cancellation_releases_upstream(self):
+    async def until(self, predicate):
+        async def poll():
+            while not predicate():
+                await asyncio.sleep(0.001)
+        await asyncio.wait_for(poll(), 3)
+
+    async def controlled(self, prompt, **extra):
+        self.blocked_prompts.add(prompt)
+        return asyncio.create_task(self.send([{'role': 'user', 'content': prompt}], **extra))
+
+    async def stop_tasks(self, tasks):
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def test_two_streams_run_without_waiting_for_a_pair(self):
+        tasks = []
+        try:
+            tasks.append(await self.controlled('first'))
+            await self.until(lambda: self.started_prompts == ['first'])
+            # The first stream is already running before the second is submitted.
+            tasks.append(await self.controlled('second'))
+            await self.until(lambda: self.started_prompts == ['first', 'second'])
+            self.assertEqual(len(self.app.state.admission.active), 2)
+            self.assertFalse(any(task.done() for task in tasks))
+            for event in self.prompt_releases.values():
+                event.set()
+            results = await asyncio.wait_for(asyncio.gather(*tasks), 3)
+            self.assertTrue(all(result.status_code == 200 and b'[DONE]' in result.content for result in results))
+        finally:
+            await self.stop_tasks(tasks)
+
+    async def test_six_waiters_are_fifo_and_ninth_request_is_rejected(self):
+        tasks = []
+        try:
+            for index in range(8):
+                tasks.append(await self.controlled(str(index)))
+                await self.until(lambda: len(self.app.state.admission.active) + len(self.app.state.admission.waiting) == len(tasks))
+            await self.until(lambda: len(self.started_prompts) == 2)
+            self.assertEqual(self.started_prompts, ['0', '1'])
+            self.assertEqual(len(self.app.state.admission.waiting), 6)
+            response = await self.send()
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(response.headers['X-Chat-Rejection'], 'queue_full')
+            self.assertEqual(len(self.forwarded), 2)
+            for index in range(8):
+                await self.until(lambda: str(index) in self.prompt_releases)
+                self.prompt_releases[str(index)].set()
+                self.assertEqual((await asyncio.wait_for(tasks[index], 3)).status_code, 200)
+            self.assertEqual(self.started_prompts, [str(index) for index in range(8)])
+            self.assertEqual(len(self.app.state.admission.active), 0)
+            self.assertEqual(len(self.app.state.admission.waiting), 0)
+            # Eight reservations plus twelve more reach the rate limit; overflow did not count.
+            for _ in range(12):
+                self.assertEqual((await self.send()).status_code, 200)
+            self.assertEqual((await self.send()).headers['X-Chat-Rejection'], 'rate_limit')
+        finally:
+            await self.stop_tasks(tasks)
+
+    async def test_cancelled_waiter_is_removed_and_never_reaches_model(self):
+        tasks = []
+        try:
+            for prompt in ['first', 'second', 'cancelled']:
+                tasks.append(await self.controlled(prompt))
+            await self.until(lambda: len(self.app.state.admission.waiting) == 1)
+            tasks[2].cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await tasks[2]
+            self.assertEqual(len(self.app.state.admission.waiting), 0)
+            self.assertEqual(len(self.forwarded), 2)
+            tasks.append(await self.controlled('replacement'))
+            await self.until(lambda: len(self.app.state.admission.waiting) == 1)
+            self.prompt_releases['first'].set()
+            await tasks[0]
+            await self.until(lambda: 'replacement' in self.started_prompts)
+            self.assertNotIn('cancelled', self.started_prompts)
+        finally:
+            await self.stop_tasks(tasks)
+
+    async def test_queue_wait_counts_toward_timeout_and_frees_waiting_slot(self):
+        tasks = []
+        try:
+            for prompt in ['first', 'second']:
+                tasks.append(await self.controlled(prompt))
+            await self.until(lambda: len(self.started_prompts) == 2)
+            response = await asyncio.wait_for(self.send(settings={**gateway.SETTINGS_DEFAULT, 'timeoutSeconds': 1}), 3)
+            self.assertEqual(response.status_code, 504)
+            self.assertEqual(response.headers['X-Chat-Rejection'], 'queue_timeout')
+            self.assertEqual(len(self.app.state.admission.waiting), 0)
+            self.assertEqual(len(self.forwarded), 2)
+        finally:
+            await self.stop_tasks(tasks)
+
+    async def test_waiting_consumes_the_same_deadline_as_tokenization(self):
+        tasks = []
+        try:
+            for prompt in ['first', 'second']:
+                tasks.append(await self.controlled(prompt))
+            await self.until(lambda: len(self.started_prompts) == 2)
+            tasks.append(asyncio.create_task(self.send(settings={**gateway.SETTINGS_DEFAULT, 'timeoutSeconds': 1})))
+            await self.until(lambda: len(self.app.state.admission.waiting) == 1)
+            await asyncio.sleep(0.6)
+            self.tokenize_delay = 0.6
+            self.prompt_releases['first'].set()
+            response = await asyncio.wait_for(tasks[2], 2)
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(len(self.forwarded), 2)  # Queue wait did not reset the generation deadline.
+        finally:
+            await self.stop_tasks(tasks)
+
+    async def test_rate_limit_is_global_even_when_slots_are_free(self):
+        for _ in range(20):
+            self.assertEqual((await self.send()).status_code, 200)
+        response = await self.send()
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.headers['X-Chat-Rejection'], 'rate_limit')
+        self.assertEqual(len(self.app.state.admission.active), 0)
+
+    async def test_cancelling_one_active_stream_leaves_the_other_running(self):
+        tasks = []
+        try:
+            for prompt in ['first', 'second', 'third']:
+                tasks.append(await self.controlled(prompt))
+            await self.until(lambda: len(self.started_prompts) == 2 and len(self.app.state.admission.waiting) == 1)
+            tasks[0].cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await tasks[0]
+            await self.until(lambda: 'third' in self.started_prompts)
+            self.assertIn('first', self.finished_prompts)
+            self.assertNotIn('second', self.finished_prompts)
+            self.assertFalse(tasks[1].done())
+            self.assertEqual(len(self.app.state.admission.active), 2)
+        finally:
+            await self.stop_tasks(tasks)
+
+    async def test_active_stream_cancellation_releases_upstream(self):
         self.block = True
         first = asyncio.create_task(self.send())
         await asyncio.wait_for(self.entered.wait(), 3)
-        self.assertEqual((await self.send()).status_code, 429)
         first.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await first
