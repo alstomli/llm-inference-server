@@ -106,7 +106,10 @@ def main():
             summary(f'Applying MAX_NUM_SEQS={sequences}; preserving other environment variables.')
             deploy_image(path, image, base, env=target_env)
             if sequences == '2':
-                request = Request(base + '/health', headers={'Authorization': 'Bearer ' + os.environ['RUNPOD_CHAT_TOKEN']})
+                request = Request(base + '/health', headers={
+                    'Authorization': 'Bearer ' + os.environ['RUNPOD_CHAT_TOKEN'],
+                    'User-Agent': 'qwen-chat-deployment-check/1.0',
+                })
                 with urlopen(request, timeout=15) as response:
                     admission = json.load(response).get('admission', {})
                 if admission.get('maxConcurrentRequests') != 2 or admission.get('maxWaitingRequests') != 6:

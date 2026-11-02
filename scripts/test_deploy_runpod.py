@@ -24,6 +24,7 @@ class DeploymentTests(unittest.TestCase):
         deploy.main()
         self.assertEqual(apply.call_count, 1)
         self.assertEqual(apply.call_args.kwargs['env'], {'MAX_NUM_SEQS': '2'})
+        self.assertEqual(urlopen.call_args.args[0].get_header('User-agent'), 'qwen-chat-deployment-check/1.0')
         self.assertIn('2 active requests', str(summary.call_args_list))
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
