@@ -54,17 +54,21 @@ def check_transition(base, timeout=180):
     raise RuntimeError('Did not observe service interruption; cannot verify new container is serving')
 
 
-def deploy_image(path, image, base):
+def deploy_image(path, image, base, env=None):
     # Runpod's update operation resets the Pod; do not separately restart it.
-    api('PATCH', path, {'imageName': image})
+    update = {'imageName': image}
+    if env is not None:
+        update['env'] = env
+    api('PATCH', path, update)
     check_transition(base)
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
-        if api('GET', path).get('imageName') == image:
+        reported = api('GET', path)
+        if reported.get('imageName') == image and (env is None or reported.get('env') == env):
             break
         time.sleep(3)
     else:
-        raise RuntimeError('Runpod did not report the requested image')
+        raise RuntimeError('Runpod did not report the requested image/environment')
     subprocess.run([sys.executable, str(SCRIPT), '--wait', '900'], check=True,
                    timeout=1100)
 
@@ -73,6 +77,9 @@ def main():
     pod, image = os.environ['RUNPOD_POD_ID'], os.environ['DEPLOY_IMAGE']
     if not POD.fullmatch(pod) or not IMAGE.fullmatch(image):
         raise ValueError('Invalid Pod ID or image digest')
+    sequences = os.environ.get('DEPLOY_MAX_NUM_SEQS', '')
+    if sequences not in ('', '1', '2'):
+        raise ValueError('DEPLOY_MAX_NUM_SEQS must be empty, 1 or 2')
     for name in ('RUNPOD_API_KEY', 'RUNPOD_CHAT_TOKEN'):
         if not os.environ.get(name):
             raise ValueError(f'Missing {name}')
@@ -85,17 +92,35 @@ def main():
         raise RuntimeError('Cannot safely determine the previous image')
     if current.get('desiredStatus') != 'RUNNING':
         raise RuntimeError('Pod must be running before deployment')
-    if image == previous:
+    previous_env = current.get('env') if sequences else None
+    if sequences and (not isinstance(previous_env, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in previous_env.items())):
+        raise RuntimeError('Cannot safely preserve the current Pod environment')
+    target_env = {**previous_env, 'MAX_NUM_SEQS': sequences} if sequences else None
+    if image == previous and target_env == previous_env:
         raise RuntimeError('Requested image is already configured')
     summary(f'Pod: `{pod}`; previous image: `{previous}`; requested image: `{image}`; commit: `{os.environ.get("GITHUB_SHA", "local")}`')
     # A timeout during PATCH can leave its outcome unknown, so attempt rollback
     # even if the API did not acknowledge the update.
     try:
-        deploy_image(path, image, base)
+        if sequences:
+            summary(f'Applying MAX_NUM_SEQS={sequences}; preserving other environment variables.')
+            deploy_image(path, image, base, env=target_env)
+            if sequences == '2':
+                request = Request(base + '/health', headers={'Authorization': 'Bearer ' + os.environ['RUNPOD_CHAT_TOKEN']})
+                with urlopen(request, timeout=15) as response:
+                    admission = json.load(response).get('admission', {})
+                if admission.get('maxConcurrentRequests') != 2 or admission.get('maxWaitingRequests') != 6:
+                    raise RuntimeError('Deployed gateway did not advertise two active and six waiting slots')
+                summary('Gateway advertises 2 active requests and 6 waiting requests.')
+        else:
+            deploy_image(path, image, base)
     except Exception as failure:
         summary(f'Deployment failed ({type(failure).__name__}); attempting to restore previous image.')
         try:
-            deploy_image(path, previous, base)
+            if sequences:
+                deploy_image(path, previous, base, env=previous_env)
+            else:
+                deploy_image(path, previous, base)
             summary('Rollback passed the live chat checks.')
         except Exception as rollback:
             summary(f'ROLLBACK FAILED ({type(rollback).__name__}): inspect the Pod immediately. Previous image: `{previous}`')
