@@ -33,7 +33,7 @@ Then create a Runpod custom template or update the existing Pod with that image,
 
 For automatic metrics collection, set `METRICS_ENABLED=true` and `METRICS_HOST=0.0.0.0` in the Pod environment, expose HTTP port 8888, and retain the existing token file `/workspace/monitoring/metrics-token` on the network volume. The token must contain at least 32 characters. It is not embedded in the image. The relay script is included at `/usr/local/lib/metrics-relay.py`; the older copy on `/workspace` is no longer the startup source. The launcher starts the enabled services on every container start, forwards shutdown, and exits if any service exits. With both `METRICS_ENABLED=false` and `CHAT_ENABLED=false` (the defaults), startup runs vLLM only.
 
-The vLLM startup configuration sets TTFT histogram boundaries every 0.1 seconds from 1.0 through 5.0 seconds and retains the existing boundaries outside that interval. Other histogram families keep their defaults. New bucket series record observations only after the updated server starts; older measurements cannot be reconstructed at the finer resolution. Deploying the change restarts the Pod and resets its in-memory prefix cache.
+The vLLM startup configuration sets TTFT histogram boundaries every 0.1 seconds from 0.1 through 10.0 seconds and retains all existing boundaries, including the finer sub-100ms boundaries and the 0.25s and 0.75s boundaries. Other histogram families keep their defaults. New bucket series record observations only after the updated server starts; older measurements cannot be reconstructed at the finer resolution. Deploying the change restarts the Pod and resets its in-memory prefix cache.
 
 Test the launcher without a GPU or model download:
 
