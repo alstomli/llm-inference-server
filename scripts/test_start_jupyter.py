@@ -88,7 +88,8 @@ class JupyterTests(unittest.TestCase):
                     self.assertIn('started', json.load(response))
                 with self.assertRaises(HTTPError) as wrong_origin:
                     browser.open(Request(url, headers={'Origin': 'https://wrong.example'}), timeout=3)
-                self.assertEqual(wrong_origin.exception.code, 403)
+                # Jupyter APIHandler deliberately conceals rejected Origins with 404.
+                self.assertEqual(wrong_origin.exception.code, 404)
 
                 # Exact Origin permission must not disable the normal XSRF protection.
                 terminals = base + '/api/terminals'
