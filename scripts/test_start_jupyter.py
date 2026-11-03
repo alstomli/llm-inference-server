@@ -49,7 +49,9 @@ class JupyterTests(unittest.TestCase):
                             break
                     except (HTTPError, URLError, OSError):
                         if process.poll() is not None or time.monotonic() >= deadline:
-                            self.fail('Authenticated Jupyter did not become ready')
+                            process.terminate()
+                            output = process.communicate(timeout=15)[0]
+                            self.fail('Authenticated Jupyter did not become ready: ' + output.replace(token, '[redacted test token]'))
                         time.sleep(0.25)
                 with self.assertRaises(HTTPError) as error:
                     urlopen(url, timeout=2)
