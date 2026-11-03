@@ -21,9 +21,14 @@ Both profiles use the same configuration keys and defaults:
 
 `MODEL_PROFILE=4bit` is the default and retains the AWQ checkpoint and `qwen`
 served alias. `MODEL_PROFILE=bf16` selects the original local checkpoint, BF16
-dtype, `qwen-bf16` alias, eager execution/loading, and `CPU_OFFLOAD_GB=30`.
+dtype, `qwen-bf16` alias, eager execution/loading, and `CPU_OFFLOAD_GB=40`.
 The offloading budget is configurable. Both profiles explicitly enable prefix
 caching and retain the same gateway API, request limits, and metrics collection.
+
+The prior 30 GiB offload configuration reported a 37,205-token GPU KV cache,
+below the requested context. This profile therefore starts its capacity trial
+with 40 GiB of CPU offloading. Actual KV capacity and host RAM use must be
+verified on the GPU; an estimate alone is not proof of fit.
 
 These are requested serving ceilings. Image tests check configuration, not GPU
 capacity. Actual BF16 readiness and generation must pass before this release is
@@ -52,7 +57,7 @@ Set these non-secret environment values on BF16 Pod `ftntkktzid9f4p`:
 MODEL_PROFILE=bf16
 MAX_MODEL_LEN=40960
 MAX_NUM_SEQS=2
-CPU_OFFLOAD_GB=30
+CPU_OFFLOAD_GB=40
 GPU_MEMORY_UTILIZATION=0.90
 SERVED_MODEL_NAME=qwen-bf16
 BF16_ROOT=/workspace/qwen-bf16

@@ -217,7 +217,7 @@ def hf_hub_download(model_id, filename, revision, local_dir):
         self.assertEqual(health['admission']['maxConcurrentRequests'], 2)
         args = json.loads(args_file.read_text())
         self.assertEqual(args[0:2], ['serve', str(Path(env['BF16_ROOT']) / 'model')])
-        for key, value in [('--dtype', 'bfloat16'), ('--cpu-offload-gb', '30'),
+        for key, value in [('--dtype', 'bfloat16'), ('--cpu-offload-gb', '40'),
                            ('--max-model-len', '40960'), ('--max-num-seqs', '2')]:
             self.assertEqual(args[args.index(key) + 1], value)
         self.assertIn('--enable-prefix-caching', args)
@@ -231,13 +231,13 @@ def hf_hub_download(model_id, filename, revision, local_dir):
     def test_bf16_accepts_the_same_context_and_concurrency_overrides(self):
         args_file = self.root / 'vllm-args.json'
         self.start(CHAT_ENABLED='true', FAKE_ARG_FILE=str(args_file),
-                   MAX_MODEL_LEN='8192', MAX_NUM_SEQS='1', CPU_OFFLOAD_GB='40',
+                   MAX_MODEL_LEN='8192', MAX_NUM_SEQS='1', CPU_OFFLOAD_GB='45',
                    **self.bf16_environment())
         health = json.loads(self.ready(self.chat_port, True, '/health'))
         self.assertEqual(health['limits']['contextTokens'], 8192)
         self.assertEqual(health['admission']['maxConcurrentRequests'], 1)
         args = json.loads(args_file.read_text())
-        self.assertEqual(args[args.index('--cpu-offload-gb') + 1], '40')
+        self.assertEqual(args[args.index('--cpu-offload-gb') + 1], '45')
         self.assertEqual(args[args.index('--max-model-len') + 1], '8192')
         self.assertEqual(args[args.index('--max-num-seqs') + 1], '1')
 
