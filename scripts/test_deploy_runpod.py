@@ -115,5 +115,73 @@ class DeploymentTests(unittest.TestCase):
         apply.assert_not_called()
 
 
+    def test_bf16_target_never_falls_back_to_the_4bit_connection(self):
+        with self.assertRaises(ValueError):
+            deploy.deployment_target(ENV, 'bf16')
+        same = {**ENV, 'RUNPOD_BF16_POD_ID': ENV['RUNPOD_POD_ID'], 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only'}
+        with self.assertRaises(ValueError):
+            deploy.deployment_target(same, 'bf16')
+        values = {**ENV, 'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only'}
+        self.assertEqual(deploy.deployment_target(values, 'bf16'), ('bf16pod', 'bf16-only'))
+        self.assertEqual(deploy.deployment_target(values, '4bit'), (ENV['RUNPOD_POD_ID'], ENV['RUNPOD_CHAT_TOKEN']))
+
+    @patch.dict(os.environ, {**ENV, 'DEPLOY_FIRST_OFFICIAL_RELEASE': 'true'}, clear=True)
+    @patch.object(deploy, 'api')
+    def test_first_release_mode_is_rejected_for_4bit_before_api(self, api):
+        with self.assertRaises(ValueError):
+            deploy.main()
+        api.assert_not_called()
+
+    @patch.dict(os.environ, {**ENV, 'DEPLOY_MODEL_PROFILE': 'bf16',
+                            'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only',
+                            'DEPLOY_FIRST_OFFICIAL_RELEASE': 'true'}, clear=True)
+    @patch.object(deploy, 'summary')
+    @patch.object(deploy, 'deploy_image')
+    @patch.object(deploy, 'api', return_value={'imageName': IMAGE, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
+    def test_first_bf16_release_can_retry_the_same_configured_digest(self, api, apply, summary):
+        deploy.main()
+        apply.assert_called_once()
+        self.assertEqual(apply.call_args.args[0], '/pods/bf16pod')
+        self.assertIn('First official BF16 release passed', str(summary.call_args))
+
+    @patch.dict(os.environ, {**ENV, 'DEPLOY_MODEL_PROFILE': 'bf16',
+                            'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only',
+                            'DEPLOY_FIRST_OFFICIAL_RELEASE': 'true'}, clear=True)
+    @patch.object(deploy, 'summary')
+    @patch.object(deploy, 'deploy_image', side_effect=RuntimeError('failure'))
+    @patch.object(deploy, 'api', return_value={'imageName': 'runpod/pytorch:old', 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
+    def test_first_bf16_failure_does_not_claim_an_official_rollback(self, api, apply, summary):
+        with self.assertRaises(RuntimeError):
+            deploy.main()
+        apply.assert_called_once()
+        self.assertIn('no previous official BF16 release exists', str(summary.call_args))
+
+    @patch.dict(os.environ, {'DEPLOY_MODEL_PROFILE': 'bf16'}, clear=True)
+    @patch.object(deploy.subprocess, 'run')
+    @patch.object(deploy, 'check_transition')
+    @patch.object(deploy, 'api', side_effect=[{}, {'imageName': IMAGE}])
+    def test_bf16_verification_uses_its_alias_and_long_startup_budget(self, api, transition, run):
+        deploy.deploy_image('/pods/bf16pod', IMAGE, 'https://bf16.invalid')
+        args = run.call_args.args[0]
+        self.assertEqual(args[args.index('--expected-model') + 1], 'qwen-bf16')
+        self.assertGreaterEqual(int(args[args.index('--wait') + 1]), 3600)
+        self.assertGreater(int(args[args.index('--read-timeout') + 1]), 74)
+
+
+    @patch.dict(os.environ, {**ENV, 'DEPLOY_MODEL_PROFILE': 'bf16',
+                            'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only'}, clear=True)
+    @patch.object(deploy, 'summary')
+    @patch.object(deploy, 'deploy_image')
+    @patch.object(deploy, 'api', return_value={'imageName': 'zihan000/qwen-inference@sha256:' + 'b' * 64,
+                                            'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
+    def test_later_bf16_failure_uses_the_same_official_image_rollback(self, api, apply, summary):
+        apply.side_effect = [RuntimeError('failed'), None]
+        with self.assertRaises(RuntimeError):
+            deploy.main()
+        self.assertEqual(apply.call_count, 2)
+        self.assertEqual(apply.call_args_list[1].args[1], 'zihan000/qwen-inference@sha256:' + 'b' * 64)
+        self.assertIn('Rollback passed', str(summary.call_args_list))
+
+
 if __name__ == '__main__':
     unittest.main()

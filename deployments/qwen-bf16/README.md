@@ -1,5 +1,9 @@
 # Qwen3.8-27B original BF16 deployment
 
+The [official vLLM image deployment](VLLM-IMAGE.md) supersedes this historical
+PyTorch-template startup procedure. Its same-context/concurrency trial requires
+live verification; this document retains the earlier deployment record.
+
 Deployment date: November 2, 2026 (America/New_York).
 
 This directory records the deployment on Runpod Pod `ftntkktzid9f4p`

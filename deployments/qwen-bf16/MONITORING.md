@@ -1,5 +1,9 @@
 # Monitoring the BF16 Pod
 
+The [official vLLM image deployment](VLLM-IMAGE.md) supersedes this historical
+PyTorch-template startup procedure. Its same-context/concurrency trial requires
+live verification; this document retains the earlier deployment record.
+
 Pod `ftntkktzid9f4p` uses Jupyter on HTTP port 8888 and a separate, bearer-token
 protected metrics relay on HTTP port 8889. vLLM remains on `127.0.0.1:8000`.
 The original BF16 bootstrap is documented in the deployment branch/PR:

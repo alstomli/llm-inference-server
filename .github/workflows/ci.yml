@@ -22,6 +22,6 @@ jobs:
       - name: Run tests in image without a GPU
         run: |
           set -euo pipefail
-          for test in test_metrics_relay.py test_chat_gateway.py test_start_server.py; do
-            docker run --rm --entrypoint python3 -v "$PWD/scripts:/tests:ro" inference-ci "/tests/$test"
+          for test in test_metrics_relay.py test_chat_gateway.py test_start_server.py test_start_jupyter.py; do
+            docker run --rm --entrypoint python3 --tmpfs /workspace -v "$PWD/scripts:/tests:ro" inference-ci "/tests/$test"
           done

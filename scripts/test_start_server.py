@@ -1,5 +1,6 @@
 """Run inside the inference image: exercise startup without loading a GPU model."""
 import json
+import struct
 import os
 from pathlib import Path
 import signal
@@ -30,7 +31,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         if self.path == '/v1/models':
-            self.wfile.write(json.dumps({'data': [{'id': 'qwen', 'max_model_len': 40960}]}).encode())
+            self.wfile.write(json.dumps({'data': [{'id': os.environ.get('SERVED_MODEL_NAME', 'qwen'), 'max_model_len': int(os.environ.get('MAX_MODEL_LEN', '40960'))}]}).encode())
         else:
             self.wfile.write(b'vllm:num_requests_running 0\\n')
     def log_message(self, *args):
@@ -176,6 +177,93 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         output = self.process.communicate(timeout=10)[0]
         self.assertEqual(self.process.returncode, 1)
         self.assertIn('Chat token file is missing', output)
+        self.closed(8000)
+
+
+    def bf16_environment(self):
+        root = self.root / 'bf16'
+        root.mkdir()
+        (root / 'config.json').write_text('{"model_id":"Qwen/Qwen3.8-27B"}')
+        source = self.root / 'checkpoint'
+        source.mkdir()
+        (source / 'config.json').write_text('{"dtype":"bfloat16"}')
+        header = json.dumps({'weight': {'dtype': 'BF16', 'shape': [1], 'data_offsets': [0, 2]}}).encode()
+        (source / 'model.safetensors').write_bytes(struct.pack('<Q', len(header)) + header + b'\0\0')
+        (self.root / 'huggingface_hub.py').write_text('''
+import hashlib, os, shutil, types
+from pathlib import Path
+class HfApi:
+    def model_info(self, *args, **kwargs):
+        files = [types.SimpleNamespace(rfilename=p.name, size=p.stat().st_size,
+                 lfs=types.SimpleNamespace(sha256=hashlib.sha256(p.read_bytes()).hexdigest()))
+                 for p in Path(os.environ['FAKE_CHECKPOINT']).iterdir()]
+        return types.SimpleNamespace(sha='a' * 40, siblings=files)
+def hf_hub_download(model_id, filename, revision, local_dir):
+    Path(local_dir).mkdir(parents=True, exist_ok=True)
+    target = Path(local_dir) / filename
+    shutil.copyfile(Path(os.environ['FAKE_CHECKPOINT']) / filename, target)
+    return str(target)
+''')
+        return {'MODEL_PROFILE': 'bf16', 'BF16_ROOT': str(root),
+                'FAKE_CHECKPOINT': str(source), 'PYTHONPATH': str(self.root)}
+
+    def test_bf16_profile_stages_original_weights_and_advertises_its_actual_limits(self):
+        args_file = self.root / 'vllm-args.json'
+        env = self.bf16_environment()
+        self.start(CHAT_ENABLED='true', FAKE_ARG_FILE=str(args_file), **env)
+        health = json.loads(self.ready(self.chat_port, True, '/health'))
+        self.assertEqual(health['model'], 'qwen-bf16')
+        self.assertEqual(health['limits']['contextTokens'], 40960)
+        self.assertEqual(health['admission']['maxConcurrentRequests'], 2)
+        args = json.loads(args_file.read_text())
+        self.assertEqual(args[0:2], ['serve', str(Path(env['BF16_ROOT']) / 'model')])
+        for key, value in [('--dtype', 'bfloat16'), ('--cpu-offload-gb', '30'),
+                           ('--max-model-len', '40960'), ('--max-num-seqs', '2')]:
+            self.assertEqual(args[args.index(key) + 1], value)
+        self.assertIn('--enable-prefix-caching', args)
+        self.assertIn('--enforce-eager', args)
+        self.assertNotIn('--language-model-only', args)
+        state = json.loads((Path(env['BF16_ROOT']) / 'model-manifest.json').read_text())
+        self.assertTrue(state['complete'])
+        self.assertEqual(state['tensor_dtypes'], {'BF16': 1})
+        self.assertIn(b'vllm:num_requests_running', self.ready(self.port, True))
+
+    def test_bf16_accepts_the_same_context_and_concurrency_overrides(self):
+        args_file = self.root / 'vllm-args.json'
+        self.start(CHAT_ENABLED='true', FAKE_ARG_FILE=str(args_file),
+                   MAX_MODEL_LEN='8192', MAX_NUM_SEQS='1', CPU_OFFLOAD_GB='40',
+                   **self.bf16_environment())
+        health = json.loads(self.ready(self.chat_port, True, '/health'))
+        self.assertEqual(health['limits']['contextTokens'], 8192)
+        self.assertEqual(health['admission']['maxConcurrentRequests'], 1)
+        args = json.loads(args_file.read_text())
+        self.assertEqual(args[args.index('--cpu-offload-gb') + 1], '40')
+        self.assertEqual(args[args.index('--max-model-len') + 1], '8192')
+        self.assertEqual(args[args.index('--max-num-seqs') + 1], '1')
+
+    def test_invalid_profile_fails_before_starting_services(self):
+        self.start(MODEL_PROFILE='unknown')
+        output = self.process.communicate(timeout=10)[0]
+        self.assertNotEqual(self.process.returncode, 0)
+        self.assertIn('MODEL_PROFILE must be', output)
+        self.closed(8000)
+        self.closed(self.port)
+
+    def test_bf16_refuses_an_unmounted_workspace(self):
+        mountpoint = self.root / 'mountpoint'
+        mountpoint.write_text('#!/bin/sh\nexit 1\n')
+        mountpoint.chmod(0o755)
+        self.start(MODEL_PROFILE='bf16')
+        output = self.process.communicate(timeout=10)[0]
+        self.assertNotEqual(self.process.returncode, 0)
+        self.assertIn('attached persistent volume', output)
+        self.closed(8000)
+
+    def test_jupyter_without_token_fails_before_starting_services(self):
+        self.start(JUPYTER_ENABLED='true', JUPYTER_PASSWORD='', JUPYTER_TOKEN='')
+        output = self.process.communicate(timeout=10)[0]
+        self.assertNotEqual(self.process.returncode, 0)
+        self.assertIn('Jupyter requires', output)
         self.closed(8000)
 
 

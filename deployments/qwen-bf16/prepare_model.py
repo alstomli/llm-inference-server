@@ -1,12 +1,13 @@
 """Pin and stage the original checkpoint without locks on the global volume."""
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import struct
 
 from huggingface_hub import HfApi, hf_hub_download
 
-ROOT = Path('/workspace/qwen-bf16')
+ROOT = Path(os.environ.get('BF16_ROOT', '/workspace/qwen-bf16'))
 STAGING = Path('/opt/qwen-bf16/download')
 MODEL = ROOT / 'model'
 MANIFEST = ROOT / 'model-manifest.json'
