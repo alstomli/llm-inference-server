@@ -1,0 +1,340 @@
+{
+  "passed": true,
+  "recorded_at_utc": "2026-11-03T15:28:29.580537+00:00",
+  "new_pod": "o6f2qoctk798tq",
+  "previous_pod": "ftntkktzid9f4p",
+  "image": "zihan000/qwen-inference@sha256:f0f6c699b2075ed714e67860c5afe26c411dc287ec957eb33382765f54ac25a7",
+  "reported_image_verified_in_runpod": true,
+  "start_command_override": "",
+  "volume": {
+    "name": "spicy_coffee_meerkat",
+    "mount": "/workspace",
+    "existing_checkpoint_reused": true
+  },
+  "configuration": {
+    "MODEL_PROFILE": "bf16",
+    "CPU_OFFLOAD_GB": "0",
+    "MAX_MODEL_LEN": "40960",
+    "MAX_NUM_SEQS": "2",
+    "GPU_MEMORY_UTILIZATION": "0.90",
+    "CHAT_DIAGNOSTICS_ENABLED": "true",
+    "SERVED_MODEL_NAME": "qwen-bf16",
+    "JUPYTER_ALLOW_ORIGIN": "https://o6f2qoctk798tq-8888.proxy.runpod.net"
+  },
+  "ports": {
+    "private_vllm": "127.0.0.1:8000",
+    "http": [
+      8888,
+      8889,
+      8001
+    ],
+    "tcp": [
+      22
+    ]
+  },
+  "container_disk_gb": 50,
+  "existing_chat_metrics_jupyter_credentials_reused": true,
+  "jupyter_existing_login_and_actual_terminal_verified": true,
+  "engine_startup": {
+    "model_gpu_gib": 51.01,
+    "checkpoint_size_gib": 51.75,
+    "weight_loading_seconds": 390.59,
+    "model_loading_seconds": 394.041112,
+    "available_kv_cache_gib": 32.34,
+    "gpu_kv_cache_tokens": 468610,
+    "estimated_concurrency_at_40960": 11.44,
+    "source": "Observed Runpod startup log; sanitized copy retained locally"
+  },
+  "phases": {
+    "ready": {
+      "passed": true,
+      "pod": "o6f2qoctk798tq",
+      "phase": "ready",
+      "recorded_at_utc": "2026-11-03T15:14:30.291806+00:00",
+      "result": {
+        "model": "qwen-bf16",
+        "context": 40960,
+        "admission": {
+          "activeRequests": 0,
+          "waitingRequests": 0,
+          "maxConcurrentRequests": 2,
+          "maxWaitingRequests": 6
+        },
+        "restart_transition_observed": true,
+        "prefix_reuse": true
+      }
+    },
+    "preflight": {
+      "passed": true,
+      "pod": "o6f2qoctk798tq",
+      "phase": "preflight",
+      "recorded_at_utc": "2026-11-03T15:15:12.204088+00:00",
+      "result": {
+        "auth": "correct token accepted; missing/wrong tokens rejected",
+        "routes": "non-chat routes blocked",
+        "over_context_request": 400
+      }
+    },
+    "generation": {
+      "passed": true,
+      "pod": "o6f2qoctk798tq",
+      "phase": "generation",
+      "recorded_at_utc": "2026-11-03T15:15:47.537715+00:00",
+      "result": {
+        "started_monotonic": 1657129.3939979,
+        "ended_monotonic": 1657164.1876697,
+        "first_content_seconds": 34.756,
+        "elapsed_seconds": 34.794,
+        "answer_characters": 5,
+        "models": [
+          "qwen-bf16"
+        ],
+        "done": true,
+        "finish_reason": "stop",
+        "active_before_client_close": null,
+        "prefix_reuse_requested": false
+      }
+    },
+    "concurrent": {
+      "passed": true,
+      "pod": "o6f2qoctk798tq",
+      "phase": "concurrent",
+      "recorded_at_utc": "2026-11-03T15:16:09.451291+00:00",
+      "result": {
+        "requests": [
+          {
+            "started_monotonic": 1657179.1801339,
+            "ended_monotonic": 1657185.8702003,
+            "first_content_seconds": 1.374,
+            "elapsed_seconds": 6.69,
+            "answer_characters": 128,
+            "models": [
+              "qwen-bf16"
+            ],
+            "done": true,
+            "finish_reason": "length",
+            "active_before_client_close": null
+          },
+          {
+            "started_monotonic": 1657179.1795702,
+            "ended_monotonic": 1657185.7732422,
+            "first_content_seconds": 0.307,
+            "elapsed_seconds": 6.594,
+            "answer_characters": 128,
+            "models": [
+              "qwen-bf16"
+            ],
+            "done": true,
+            "finish_reason": "length",
+            "active_before_client_close": null
+          }
+        ],
+        "observed_peak_active": 2,
+        "workload": "two short prompts, up to 128 output tokens each",
+        "maximum_context_requests_tested": false
+      }
+    },
+    "monitoring": {
+      "passed": true,
+      "pod": "o6f2qoctk798tq",
+      "phase": "monitoring",
+      "recorded_at_utc": "2026-11-03T15:26:13.541094+00:00",
+      "result": {
+        "instances": [
+          "o6f2qoctk798tq-8889.proxy.runpod.net",
+          "rp93m3noz3l9lt-8888.proxy.runpod.net"
+        ],
+        "scrape_health": "both up",
+        "gpu_exporters": "both up"
+      }
+    }
+  },
+  "latency_test": {
+    "passed": true,
+    "pod": "o6f2qoctk798tq",
+    "phase": "benchmark",
+    "recorded_at_utc": "2026-11-03T15:16:02.058084+00:00",
+    "result": {
+      "first_content_seconds": 0.4012766999658197,
+      "content_events": 128,
+      "content_characters": 128,
+      "mean_content_event_gap_ms": 39.72261259882293,
+      "median_content_event_gap_ms": 39.8678001947701,
+      "p95_content_event_gap_ms": 42.96260001137853,
+      "usage": null,
+      "gateway_timing": null,
+      "engine_itl_observations": 127.0,
+      "engine_mean_itl_ms": 39.733409204755866,
+      "note": "Client-observed SSE content-event gaps; events are not guaranteed to equal individual tokens. Obtain engine ITL from Prometheus.",
+      "total_including_post_request_metrics_seconds": 5.973007699940354
+    }
+  },
+  "resources_after_direct_and_local_tests": {
+    "pod": "o6f2qoctk798tq",
+    "cpu_offload_gb": 0,
+    "context": 40960,
+    "sequences": 2,
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887, 87877",
+    "memory.max": "187999997952",
+    "memory.current": "61338382336",
+    "memory.peak": "68484599808",
+    "memory.events": {
+      "low": "0",
+      "high": "0",
+      "max": "0",
+      "oom": "0",
+      "oom_kill": "0",
+      "oom_group_kill": "0"
+    },
+    "checkpoint": {
+      "model_id": "Qwen/Qwen3.8-27B",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+      "complete": true,
+      "tensor_dtypes": {
+        "BF16": 1199
+      },
+      "weight_shards": 18
+    },
+    "vllm_requests": [
+      "vllm:num_requests_running{engine=\"0\",model_name=\"qwen-bf16\"} 0.0",
+      "vllm:num_requests_waiting{engine=\"0\",model_name=\"qwen-bf16\"} 0.0"
+    ],
+    "zero_offload_command_verified": true
+  },
+  "frontend": {
+    "production_url": "https://qwen38-chat-zh.vercel.app",
+    "deployment_id": "5v9YwUbMFkRnMX5FmjXgBX4UF9U7",
+    "deployment_url": "https://qwen-chat-m04wklzqs-alstomlis-projects.vercel.app",
+    "status": "READY",
+    "source_commit": "b89fee635cc65d0a658ac1384cc3b1b7c7d89d52",
+    "build_seconds": 26,
+    "bf16_gateway": "https://o6f2qoctk798tq-8001.proxy.runpod.net",
+    "production_only_url_changed": true,
+    "existing_token_preserved": true,
+    "both_model_cards_ready_after_old_pod_stopped": true,
+    "hosted_diagnostics_record": {
+      "request_id": "de5c24ffa66557750c393c53bfe1c010",
+      "created_at": "2026-11-03T15:23:04.316Z",
+      "status": "completed",
+      "selected_model": "Qwen3.8-27B-bf16",
+      "model": "qwen-bf16",
+      "browser_messages_before": 1,
+      "browser_messages_sent": 1,
+      "browser_bytes_before": 80,
+      "browser_bytes_sent": 80,
+      "browser_trimmed_messages": 0,
+      "gateway_trimmed_messages": 0,
+      "input_tokens_before": 53,
+      "input_tokens_sent": 53,
+      "last_counted_input_tokens": 53,
+      "removed_tokens": 0,
+      "output_budget": 7680,
+      "safety_reserve": 32,
+      "context_budget": 40960,
+      "unreserved_tokens": 33195,
+      "actual_prompt_tokens": 53,
+      "actual_output_tokens": 14,
+      "finish_reason": "stop",
+      "prefix_reuse": "allowed",
+      "temperature": 0.7,
+      "input_character_limit": 120000,
+      "history_message_limit": 799,
+      "history_byte_limit": 580000,
+      "request_byte_limit": 640000,
+      "timeout_seconds": 2400,
+      "browser_first_content_ms": 695.6999998092651,
+      "browser_first_render_ms": 737,
+      "browser_completion_ms": 1198.8999998569489,
+      "browser_elapsed_ms": 1198.8999998569489,
+      "gateway_context_fit_ms": 5.472,
+      "gateway_upstream_first_content_ms": 83.459,
+      "gateway_first_content_ms": 92.304,
+      "gateway_total_ms": 612.397
+    },
+    "diagnostics_session_toggle_restored_off": true,
+    "numeric_settings_preserved": true,
+    "local_url": "http://127.0.0.1:3001",
+    "local_real_bf16_reply_verified": true,
+    "local_frontend_pid": 29856,
+    "local_only_bf16_url_changed": true,
+    "request_counter_before": {
+      "ftntkktzid9f4p": [
+        "vllm:num_requests_running{engine=\"0\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:num_requests_waiting{engine=\"0\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:generation_tokens_total{engine=\"0\",model_name=\"qwen-bf16\"} 179.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"stop\",model_name=\"qwen-bf16\"} 1.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"length\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"abort\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"error\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"repetition\",model_name=\"qwen-bf16\"} 0.0"
+      ],
+      "o6f2qoctk798tq": [
+        "vllm:num_requests_running{engine=\"0\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:num_requests_waiting{engine=\"0\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:generation_tokens_total{engine=\"0\",model_name=\"qwen-bf16\"} 400.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"stop\",model_name=\"qwen-bf16\"} 2.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"length\",model_name=\"qwen-bf16\"} 3.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"abort\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"error\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"repetition\",model_name=\"qwen-bf16\"} 0.0"
+      ]
+    },
+    "request_counter_after": {
+      "ftntkktzid9f4p": [
+        "vllm:num_requests_running{engine=\"0\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:num_requests_waiting{engine=\"0\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:generation_tokens_total{engine=\"0\",model_name=\"qwen-bf16\"} 179.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"stop\",model_name=\"qwen-bf16\"} 1.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"length\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"abort\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"error\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"repetition\",model_name=\"qwen-bf16\"} 0.0"
+      ],
+      "o6f2qoctk798tq": [
+        "vllm:num_requests_running{engine=\"0\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:num_requests_waiting{engine=\"0\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:generation_tokens_total{engine=\"0\",model_name=\"qwen-bf16\"} 414.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"stop\",model_name=\"qwen-bf16\"} 3.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"length\",model_name=\"qwen-bf16\"} 3.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"abort\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"error\",model_name=\"qwen-bf16\"} 0.0",
+        "vllm:request_success_total{engine=\"0\",finished_reason=\"repetition\",model_name=\"qwen-bf16\"} 0.0"
+      ]
+    }
+  },
+  "deployment_target": {
+    "github_environment": "prod",
+    "variable": "RUNPOD_BF16_POD_ID",
+    "verified_value": "o6f2qoctk798tq"
+  },
+  "monitoring": {
+    "railway_project": "0bfbf322-de90-4f56-bd09-2401e145dbb2",
+    "prometheus_deployment": "788e3574-8c01-4d0d-8d7d-1942e93f8add",
+    "targets": [
+      "rp93m3noz3l9lt-8888.proxy.runpod.net",
+      "o6f2qoctk798tq-8889.proxy.runpod.net"
+    ],
+    "existing_volume_image_credentials_retention_preserved": true,
+    "grafana_existing_panels_and_pod_variable_verified": true,
+    "historical_series_retained": true
+  },
+  "old_pod": {
+    "state": "stopped",
+    "runpod_start_button_and_zero_compute_cost_observed": true,
+    "stopped_only_after_hosted_routing_and_monitoring_verified": true,
+    "terminated": false,
+    "global_volume_retained": true
+  },
+  "four_bit_runtime_changed": false,
+  "synthetic_gpu_generation_requests": 6,
+  "limitations": [
+    "Two maximum-context concurrent requests were not tested.",
+    "The new ITL test is not a controlled before/after benchmark against the old Pod.",
+    "The first cold request took 34.756 seconds to first content; subsequent latency is reported separately.",
+    "Documentation PRs require separate merge approval; no default-branch merge was performed."
+  ],
+  "documentation_prs": [
+    "https://github.com/alstomli/qwen-chat/pull/9",
+    "https://github.com/alstomli/llm-prometheus/pull/3"
+  ]
+}
