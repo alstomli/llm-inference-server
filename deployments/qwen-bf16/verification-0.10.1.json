@@ -1,0 +1,215 @@
+{
+  "accepted": true,
+  "release": "0.10.1",
+  "previous_official_release": null,
+  "image": "zihan000/qwen-inference@sha256:f0f6c699b2075ed714e67860c5afe26c411dc287ec957eb33382765f54ac25a7",
+  "release_workflow": "https://github.com/alstomli/llm-inference-server/actions/runs/41575958803",
+  "source_merge": "5b84e08522e06f4fe90c956e740cf1fbd3cc2048",
+  "verification_date_local": "2026-11-02",
+  "timezone": "America/New_York",
+  "pod": "ftntkktzid9f4p",
+  "model": {
+    "repository": "Qwen/Qwen3.8-27B",
+    "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "cached_weight_shards": 18,
+    "BF16_tensors": 1199,
+    "dtype": "bfloat16"
+  },
+  "serving": {
+    "model_profile": "bf16",
+    "max_model_len": 40960,
+    "max_num_seqs": 2,
+    "cpu_offload_gib": 40
+  },
+  "runtime": {
+    "vllm": "0.32.0",
+    "torch": "2.13.0+cu130",
+    "transformers": "5.19.0",
+    "jupyterlab": "4.6.4",
+    "jupyter_server": "2.21.1"
+  },
+  "admin_verification": {
+    "same_token_login": true,
+    "public_proxy_terminal_command_executed": true,
+    "exact_proxy_origin": "https://ftntkktzid9f4p-8888.proxy.runpod.net",
+    "legacy_venv_used": false
+  },
+  "capacity": {
+    "available_KV_cache_gib": 15.19,
+    "GPU_KV_cache_tokens": 220073,
+    "reported_estimated_concurrency_at_40960_tokens": 5.37
+  },
+  "resources_after_tests": {
+    "memory_current_bytes": 86301044736,
+    "memory_peak_bytes": 94000001024,
+    "memory_max_bytes": 93999996928,
+    "inactive_file_bytes": 15755755520,
+    "working_estimate_bytes": 70545289216,
+    "memory_events_max": 8567,
+    "memory_events_max_unchanged_during_requests": true,
+    "memory_events_oom": 0,
+    "memory_events_oom_kill": 0,
+    "GPU_used_MiB": 27749,
+    "GPU_total_MiB": 32623
+  },
+  "phases": {
+    "ready": {
+      "passed": true,
+      "phase": "ready",
+      "release_candidate": "0.10.1",
+      "recorded_utc": "2026-11-03T04:23:17.394891+00:00",
+      "result": {
+        "model": "qwen-bf16",
+        "context": 40960,
+        "admission": {
+          "activeRequests": 0,
+          "waitingRequests": 0,
+          "maxConcurrentRequests": 2,
+          "maxWaitingRequests": 6
+        },
+        "restart_transition_observed": true,
+        "prefix_reuse": true
+      }
+    },
+    "preflight": {
+      "passed": true,
+      "phase": "preflight",
+      "release_candidate": "0.10.1",
+      "recorded_utc": "2026-11-03T04:28:35.145757+00:00",
+      "result": {
+        "auth": "correct token accepted; missing/wrong tokens rejected",
+        "routes": "non-chat routes blocked",
+        "over_context_request": 400
+      }
+    },
+    "generation": {
+      "passed": true,
+      "phase": "generation",
+      "release_candidate": "0.10.1",
+      "recorded_utc": "2026-11-03T04:29:33.622316+00:00",
+      "result": {
+        "first_content_seconds": 50.633,
+        "elapsed_seconds": 52.378,
+        "answer_characters": 5,
+        "models": [
+          "qwen-bf16"
+        ],
+        "done": true,
+        "finish_reason": "stop",
+        "active_before_client_close": null,
+        "prefix_reuse_requested": false
+      }
+    },
+    "concurrency": {
+      "passed": true,
+      "phase": "concurrency",
+      "release_candidate": "0.10.1",
+      "recorded_utc": "2026-11-03T04:29:54.088629+00:00",
+      "result": {
+        "requests": [
+          {
+            "first_content_seconds": 3.268,
+            "elapsed_seconds": 10.471,
+            "answer_characters": 18,
+            "models": [
+              "qwen-bf16"
+            ],
+            "done": true,
+            "finish_reason": "stop",
+            "active_before_client_close": null
+          },
+          {
+            "first_content_seconds": 5.546,
+            "elapsed_seconds": 12.112,
+            "answer_characters": 18,
+            "models": [
+              "qwen-bf16"
+            ],
+            "done": true,
+            "finish_reason": "stop",
+            "active_before_client_close": null
+          }
+        ],
+        "observed_peak_active": 2,
+        "http_intervals_overlap": true,
+        "workload": "two short synthetic prompts"
+      }
+    },
+    "cancellation": {
+      "passed": true,
+      "phase": "cancellation",
+      "release_candidate": "0.10.1",
+      "recorded_utc": "2026-11-03T04:31:00.793441+00:00",
+      "result": {
+        "closed_after_first_content": true,
+        "capacity_released": true,
+        "request": {
+          "first_content_seconds": 3.007,
+          "elapsed_seconds": 3.17,
+          "answer_characters": 1,
+          "models": [
+            "qwen-bf16"
+          ],
+          "done": false,
+          "finish_reason": null,
+          "active_before_client_close": 1
+        }
+      }
+    },
+    "monitoring": {
+      "passed": true,
+      "phase": "monitoring",
+      "release_candidate": "0.10.1",
+      "recorded_utc": "2026-11-03T04:31:07.699466+00:00",
+      "result": {
+        "instances": [
+          "ftntkktzid9f4p-8889.proxy.runpod.net",
+          "rp93m3noz3l9lt-8888.proxy.runpod.net"
+        ],
+        "scrape_health": "both up",
+        "gpu_exporters": "both up"
+      }
+    }
+  },
+  "frontend_integration": {
+    "pull_request": "https://github.com/alstomli/qwen-chat/pull/7",
+    "origin": "http://127.0.0.1:3001",
+    "both_models_replied_in_one_conversation": true,
+    "assistant_model_labels_correct": true,
+    "selector_locked_during_generation": true,
+    "selection_and_labels_retained_after_reload": true,
+    "workspace_screenshot": "images-in-chat/model-selector-live-two-pods.jpg"
+  },
+  "limitations": [
+    "Loading reached the cgroup memory cap and reclaimed file cache; memory.max pressure events occurred without OOM or OOM-kill events.",
+    "Two overlapping short synthetic generations were tested, not two simultaneous full-context generations.",
+    "Reported cache concurrency is an engine estimate, not a workload benchmark."
+  ],
+  "evidence": "External phase results plus deployment-owner admin/capacity/resource inspection; accepted runtime record also stored at /workspace/qwen-bf16/runtime-verification.json.",
+  "unverified_candidates": [
+    "0.10.0"
+  ],
+  "resources_after_frontend": {
+    "memory_current_bytes": 80542801920,
+    "memory_peak_bytes": 94000001024,
+    "memory_max_bytes": 93999996928,
+    "memory_events_max": 8567,
+    "memory_events_oom": 0,
+    "memory_events_oom_kill": 0
+  },
+  "ports": {
+    "4bit": {
+      "pod": "rp93m3noz3l9lt",
+      "8888": "authenticated metrics relay",
+      "8001": "authenticated chat gateway",
+      "jupyter": "no launcher configured"
+    },
+    "bf16": {
+      "pod": "ftntkktzid9f4p",
+      "8888": "authenticated Jupyter",
+      "8889": "authenticated metrics relay",
+      "8001": "authenticated chat gateway"
+    },
+    "both_private_vllm": "127.0.0.1:8000"
+  }
+}

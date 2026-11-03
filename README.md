@@ -4,11 +4,12 @@ The 4bit and BF16 Pods can use one vLLM-based image with `MODEL_PROFILE=4bit`
 (default) or `MODEL_PROFILE=bf16`. See the [official BF16 image deployment](deployments/qwen-bf16/VLLM-IMAGE.md)
 for shared settings, the one-time migration, and versioned-image rollback.
 
-The original BF16 deployment with partial CPU weight offloading on Pod
-`ftntkktzid9f4p` is documented in the [BF16 deployment runbook](deployments/qwen-bf16/README.md).
-Its scripts and configuration are separate from the inference image described below.
-The Pod also uses a [protected metrics relay](deployments/qwen-bf16/MONITORING.md)
-on port 8889; that guide covers startup, storage, authentication checks, and rollback.
+BF16 Pod `ftntkktzid9f4p` is verified on its first official image release **0.10.1**,
+with the same 40,960-token context and two active requests as the 4bit Pod, using
+40 GiB CPU offloading. Its [verification record and deployment guide](deployments/qwen-bf16/VLLM-IMAGE.md)
+include Jupyter on 8888, protected metrics on 8889, chat on 8001, observed memory
+pressure, and the tested workload limits. The [earlier script-based runbook](deployments/qwen-bf16/README.md)
+is retained as a historical record. The 4bit live deployment was retained.
 
 ## CI and image releases
 
