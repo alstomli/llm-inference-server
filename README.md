@@ -1,8 +1,10 @@
 # Qwen inference server on Runpod
 
-The additional original-BF16 Pod uses a separate metrics relay on port 8889;
-see [BF16 Pod monitoring](deployments/qwen-bf16/MONITORING.md) for its startup,
-storage, authentication checks, and rollback procedure.
+The original BF16 deployment with partial CPU weight offloading on Pod
+`ftntkktzid9f4p` is documented in the [BF16 deployment runbook](deployments/qwen-bf16/README.md).
+Its scripts and configuration are separate from the inference image described below.
+The Pod also uses a [protected metrics relay](deployments/qwen-bf16/MONITORING.md)
+on port 8889; that guide covers startup, storage, authentication checks, and rollback.
 
 ## CI and image releases
 

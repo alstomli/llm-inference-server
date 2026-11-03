@@ -12,8 +12,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Check syntax
         run: |
-          python -m compileall -q scripts
+          python -m compileall -q scripts deployments/qwen-bf16
           bash -n scripts/start-server.sh
+          bash -n deployments/qwen-bf16/bootstrap.sh
+          python deployments/qwen-bf16/test_prepare_model.py
           python scripts/test_deploy_runpod.py
       - name: Build inference image
         run: docker build --platform linux/amd64 -t inference-ci .
