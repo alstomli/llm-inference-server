@@ -82,6 +82,40 @@ retained after reload. See [frontend PR #7](https://github.com/alstomli/qwen-cha
 Its screenshot is retained in the project workspace at
 `images-in-chat/model-selector-live-two-pods.jpg`.
 
+## Request diagnostics verified November 3, 2026
+
+Only `CHAT_DIAGNOSTICS_ENABLED=true` was added to the BF16 Pod's persistent
+environment. Its 0.10.1 image, other environment settings, ports, and startup
+configuration were retained. After the restart, the gateway and hosted frontend
+both reported the BF16 model ready with diagnostics version 1; the hosted
+frontend also reported diagnostics available for the 4bit model. Context remained
+40,960 tokens, with two active and six waiting slots. The frontend server's
+own diagnostics gate was already enabled on the hosted deployment; the local
+frontend's setting was not changed.
+
+Actual hosted browser checks confirmed both model controls were enabled and
+independent: the 4bit diagnostic checkbox was unchecked while the BF16 checkbox
+was checked. Exactly one opted-in BF16 request completed through the hosted
+frontend with model `qwen-bf16` and finish reason `stop`. Its diagnostic record
+reported 47 input tokens before and after fitting, 47 actual vLLM prompt tokens,
+and seven output tokens, using an output budget of 128, a safety reserve of 32,
+and context budget 40,960. Timing metadata was accepted only after its request ID
+matched the request record. This was a functional check of one post-restart
+request, not a measurement of diagnostics overhead.
+
+The BF16 toggle was then restored to off, and its prior output preference of
+7,680 tokens was restored. Jupyter's existing credential login and actual proxy
+terminal remained usable; both existing Prometheus targets and GPU exporters
+were healthy. The BF16 gateway returned to zero active and zero waiting requests.
+Post-request private vLLM metrics also showed zero running and waiting requests.
+GPU usage was 27,747 / 32,623 MiB. The container retained the same
+93,999,996,928-byte RAM cap with zero OOM and OOM-kill events. Its memory-cap
+pressure counter was 8,579; this may include profiling and is not an assertion
+that the counter stayed unchanged during inference. The raw resource record is
+on the volume at `/workspace/qwen-bf16/diagnostics-resources.json`.
+The original first-release JSON remains the historical November 2 record; this
+later configuration check does not rewrite that evidence.
+
 ## Port roles on the two Pods
 
 | Pod | HTTP ports | Jupyter |
@@ -163,9 +197,11 @@ JUPYTER_ALLOW_ORIGIN=https://ftntkktzid9f4p-8888.proxy.runpod.net
 ```
 
 `CHAT_DIAGNOSTICS_ENABLED=true` makes request diagnostics available from the
-BF16 gateway. Its health response advertises `diagnosticsVersion=1`; the frontend
-then exposes the BF16 model's independent Request diagnostics control in
-Advanced settings. This enables the capability, not diagnostics on every
+BF16 gateway. Its health response advertises `diagnosticsVersion=1`. A frontend
+must also enable its own server-side `CHAT_DIAGNOSTICS_ENABLED=true` gate before
+it exposes the BF16 model's independent Request diagnostics control in Advanced
+settings. The Pod flag alone does not enable diagnostics in every frontend
+environment. This enables the capability, not diagnostics on every
 request: the user still opts in per model, and opted-in requests carry
 `X-Chat-Diagnostics: 1`. Ordinary requests retain their normal streaming behavior.
 The same image is used; changing this Pod environment value requires a restart
