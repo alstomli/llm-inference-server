@@ -69,14 +69,39 @@ def deploy_image(path, image, base, env=None):
         time.sleep(3)
     else:
         raise RuntimeError('Runpod did not report the requested image/environment')
-    subprocess.run([sys.executable, str(SCRIPT), '--wait', '900'], check=True,
-                   timeout=1100)
+    bf16 = os.environ.get('DEPLOY_MODEL_PROFILE', '4bit') == 'bf16'
+    wait = 3600 if bf16 else 900
+    subprocess.run([sys.executable, str(SCRIPT), '--wait', str(wait),
+                    '--expected-model', 'qwen-bf16' if bf16 else 'qwen',
+                    '--read-timeout', '180' if bf16 else '30'], check=True,
+                   timeout=wait + (900 if bf16 else 200))
+
+
+def deployment_target(env, profile):
+    if profile == 'bf16':
+        pod = env.get('RUNPOD_BF16_POD_ID', '')
+        token = env.get('RUNPOD_BF16_CHAT_TOKEN', '')
+        if not pod or not token:
+            raise ValueError('Configure RUNPOD_BF16_POD_ID and RUNPOD_BF16_CHAT_TOKEN for this environment')
+        if pod == env.get('RUNPOD_POD_ID'):
+            raise ValueError('The BF16 target must be different from the 4bit Pod')
+        return pod, token
+    return env.get('RUNPOD_POD_ID', ''), env.get('RUNPOD_CHAT_TOKEN', '')
 
 
 def main():
-    pod, image = os.environ['RUNPOD_POD_ID'], os.environ['DEPLOY_IMAGE']
+    profile = os.environ.get('DEPLOY_MODEL_PROFILE', '4bit')
+    pod, chat_token = deployment_target(os.environ, profile)
+    image = os.environ['DEPLOY_IMAGE']
+    os.environ['RUNPOD_CHAT_TOKEN'] = chat_token
     if not POD.fullmatch(pod) or not IMAGE.fullmatch(image):
         raise ValueError('Invalid Pod ID or image digest')
+    first = os.environ.get('DEPLOY_FIRST_OFFICIAL_RELEASE', 'false')
+    if profile not in ('4bit', 'bf16') or first not in ('true', 'false'):
+        raise ValueError('Invalid deployment profile or first-release setting')
+    if first == 'true' and profile != 'bf16':
+        raise ValueError('First official release mode is only for the BF16 migration')
+    first_release = first == 'true'
     sequences = os.environ.get('DEPLOY_MAX_NUM_SEQS', '')
     if sequences not in ('', '1', '2'):
         raise ValueError('DEPLOY_MAX_NUM_SEQS must be empty, 1 or 2')
@@ -92,11 +117,16 @@ def main():
         raise RuntimeError('Cannot safely determine the previous image')
     if current.get('desiredStatus') != 'RUNNING':
         raise RuntimeError('Pod must be running before deployment')
+    if profile == 'bf16':
+        if current.get('env', {}).get('MODEL_PROFILE') != 'bf16':
+            raise RuntimeError('Complete the one-time BF16 Pod profile/entrypoint/ports migration first')
+        if not first_release and not IMAGE.fullmatch(previous):
+            raise RuntimeError('No previous official BF16 image; use first official release mode')
     previous_env = current.get('env') if sequences else None
     if sequences and (not isinstance(previous_env, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in previous_env.items())):
         raise RuntimeError('Cannot safely preserve the current Pod environment')
     target_env = {**previous_env, 'MAX_NUM_SEQS': sequences} if sequences else None
-    if image == previous and target_env == previous_env:
+    if image == previous and target_env == previous_env and not first_release:
         raise RuntimeError('Requested image is already configured')
     summary(f'Pod: `{pod}`; previous image: `{previous}`; requested image: `{image}`; commit: `{os.environ.get("GITHUB_SHA", "local")}`')
     # A timeout during PATCH can leave its outcome unknown, so attempt rollback
@@ -118,6 +148,9 @@ def main():
         else:
             deploy_image(path, image, base)
     except Exception as failure:
+        if first_release:
+            summary('First official BF16 deployment failed; no previous official BF16 release exists. Diagnose the migration and retry in first-release mode; no automatic legacy rollback was attempted.')
+            raise RuntimeError('First official BF16 deployment failed') from failure
         summary(f'Deployment failed ({type(failure).__name__}); attempting to restore previous image.')
         try:
             if sequences:
@@ -128,7 +161,7 @@ def main():
         except Exception as rollback:
             summary(f'ROLLBACK FAILED ({type(rollback).__name__}): inspect the Pod immediately. Previous image: `{previous}`')
         raise RuntimeError('Deployment failed; inspect workflow logs and rollback status') from failure
-    summary('Deployment passed the live chat checks.')
+    summary('First official BF16 release passed the live chat checks.' if first_release else 'Deployment passed the live chat checks.')
 
 
 if __name__ == '__main__':

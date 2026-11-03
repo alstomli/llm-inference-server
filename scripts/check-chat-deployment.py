@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--wait', type=int, default=0, help='Maximum readiness wait in seconds')
+    parser.add_argument('--expected-model', default='qwen')
+    parser.add_argument('--read-timeout', type=int, default=30)
     args = parser.parse_args()
+    if not 1 <= args.read_timeout <= 900:
+        parser.error('read-timeout must be between 1 and 900 seconds')
     local_env = ROOT.parent / 'qwen-chat/.env.local'
     values = dict(line.split('=', 1) for line in local_env.read_text().splitlines() if '=' in line and not line.startswith('#')) if local_env.exists() else {}
     token = os.environ.get('RUNPOD_CHAT_TOKEN') or values.get('RUNPOD_CHAT_TOKEN')
@@ -30,7 +34,7 @@ def main():
         if payload is not None:
             headers['Content-Type'] = 'application/json'
         data = json.dumps(payload).encode() if payload is not None else None
-        return urlopen(Request(base + path, headers=headers, data=data), timeout=30)
+        return urlopen(Request(base + path, headers=headers, data=data), timeout=args.read_timeout)
 
     def expect(path, status, authorization=None, payload=None, wait=False):
         while True:
@@ -49,11 +53,11 @@ def main():
             raise AssertionError(f'{path}: expected {status}, got {actual}')
 
     health = json.loads(expect('/health', 200, token, wait=True))
-    assert health['ready'] is True and health['model'] == 'qwen'
+    assert health['ready'] is True and health['model'] == args.expected_model
     print('PASS: The deployed model is ready.', flush=True)
 
     payload = {
-        'messages': [{'role': 'user', 'content': 'hello'}],
+        'messages': [{'role': 'user', 'content': 'Reply with exactly: ready'}],
         'max_tokens': 128, 'temperature': 0.1, 'stream': True,
     }
     start = time.monotonic()

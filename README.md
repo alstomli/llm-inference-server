@@ -1,5 +1,9 @@
 # Qwen inference server on Runpod
 
+The 4bit and BF16 Pods can use one vLLM-based image with `MODEL_PROFILE=4bit`
+(default) or `MODEL_PROFILE=bf16`. See the [official BF16 image deployment](deployments/qwen-bf16/VLLM-IMAGE.md)
+for shared settings, the one-time migration, and versioned-image rollback.
+
 The original BF16 deployment with partial CPU weight offloading on Pod
 `ftntkktzid9f4p` is documented in the [BF16 deployment runbook](deployments/qwen-bf16/README.md).
 Its scripts and configuration are separate from the inference image described below.
