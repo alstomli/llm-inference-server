@@ -3,6 +3,8 @@
 The original BF16 deployment with partial CPU weight offloading on Pod
 `ftntkktzid9f4p` is documented in the [BF16 deployment runbook](deployments/qwen-bf16/README.md).
 Its scripts and configuration are separate from the inference image described below.
+The Pod also uses a [protected metrics relay](deployments/qwen-bf16/MONITORING.md)
+on port 8889; that guide covers startup, storage, authentication checks, and rollback.
 
 ## CI and image releases
 
