@@ -28,6 +28,7 @@ class JupyterTests(unittest.TestCase):
             with socket.socket() as listener:
                 listener.bind(('127.0.0.1', 0))
                 port = listener.getsockname()[1]
+            (root / 'volume-probe.txt').write_text('configured workspace root')
             token = 'image-test-only-' + 'x' * 40
             env = {**os.environ, 'JUPYTER_PASSWORD': token,
                    'JUPYTER_PORT': str(port), 'JUPYTER_SERVER_ROOT': str(root),
@@ -53,6 +54,9 @@ class JupyterTests(unittest.TestCase):
                             output = process.communicate(timeout=15)[0]
                             self.fail('Authenticated Jupyter did not become ready: ' + output.replace(token, '[redacted test token]'))
                         time.sleep(0.25)
+                contents = f'http://127.0.0.1:{port}/api/contents/volume-probe.txt'
+                with urlopen(Request(contents, headers={'Authorization': 'token ' + token}), timeout=2) as response:
+                    self.assertEqual(json.load(response)['content'], 'configured workspace root')
                 with self.assertRaises(HTTPError) as error:
                     urlopen(url, timeout=2)
                 self.assertEqual(error.exception.code, 403)

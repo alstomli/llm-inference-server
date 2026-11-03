@@ -30,4 +30,7 @@ if __name__ == '__main__':
     from jupyterlab.labapp import LabApp
     from traitlets.config import Config
     # Tokens stay in the process environment/configuration, never the command line.
-    LabApp.launch_instance(config=Config(configuration(os.environ)))
+    # initialize_server forwards this config into ServerApp; launch_instance
+    # does not forward keyword arguments in Jupyter Server 2.21.1.
+    server = LabApp.initialize_server(argv=[], config=Config(configuration(os.environ)))
+    server.start()
