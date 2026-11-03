@@ -15,15 +15,6 @@ on:
         type: choice
         options: [4bit, bf16]
         default: 4bit
-      first_official_release:
-        description: 'BF16 only: keep enabled until its first official image passes verification'
-        type: boolean
-        default: false
-      max_num_seqs:
-        description: 'Optional MAX_NUM_SEQS override: 1 or 2 (empty preserves current environment)'
-        type: string
-        required: false
-        default: ''
 permissions:
   contents: read
 concurrency:
@@ -46,8 +37,6 @@ jobs:
           RUNPOD_POD_ID: ${{ vars.RUNPOD_POD_ID }}
           DEPLOY_IMAGE: ${{ inputs.image }}
           DEPLOY_MODEL_PROFILE: ${{ inputs.model_profile }}
-          DEPLOY_FIRST_OFFICIAL_RELEASE: ${{ inputs.first_official_release }}
-          DEPLOY_MAX_NUM_SEQS: ${{ inputs.max_num_seqs }}
         run: python scripts/deploy-runpod.py
       - name: Check metrics separately
         continue-on-error: true

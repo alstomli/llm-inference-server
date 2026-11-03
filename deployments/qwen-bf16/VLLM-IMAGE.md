@@ -219,14 +219,9 @@ normal rollback can return to this verified baseline.
 
 For later deploys or rollbacks, use **Deploy or roll back Runpod image**, choose
 `target=prod`, `model_profile=bf16`, and the intended published image digest.
-Leave `first_official_release=false`. The normal versioned-image rollback is the
-same as the 4bit workflow: a failed update restores the previous official image
-and verifies it. Stable Pod profile, volume, entrypoint, and ports stay configured.
-
-If retrying a failed first official release through the workflow, set
-`first_official_release=true` and keep it enabled until verification succeeds.
-This explicit mode permits retry of the same configured digest, reports that no
-previous official BF16 release exists on failure, and does not automatically
-restore a PyTorch-era deployment. It is an operator assertion, not release history
-inferred from an image name. Diagnose initial migration failures using the saved
-settings and logs. Subsequent successful releases use normal mode.
+These are the workflow's only inputs. The first official BF16 baseline is
+already verified, so deployments use normal versioned-image rollback: a failed
+update restores the previous official image and verifies it, just as on the
+4bit Pod. Existing Pod configuration, including `MAX_NUM_SEQS`, is preserved;
+concurrency is managed on the Pod. Stable profile, volume, entrypoint, and ports
+stay configured.
