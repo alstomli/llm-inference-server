@@ -1,8 +1,10 @@
 # Qwen3.8-27B original BF16 deployment
 
-The [official vLLM image deployment](VLLM-IMAGE.md) supersedes this historical
-PyTorch-template startup procedure. Its same-context/concurrency trial requires
-live verification; this document retains the earlier deployment record.
+**Current deployment: verified official vLLM image 0.10.1.** See the
+[current deployment and verification guide](VLLM-IMAGE.md) for its configuration,
+startup, and rollback procedure. The body below preserves the earlier
+PyTorch-template deployment record; its `bootstrap.sh` and start commands are
+not the current Pod startup.
 
 Deployment date: November 2, 2026 (America/New_York).
 
