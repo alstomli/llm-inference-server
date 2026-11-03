@@ -72,11 +72,16 @@ METRICS_TOKEN_FILE=/workspace/qwen-bf16/metrics-token
 JUPYTER_ENABLED=true
 JUPYTER_PORT=8888
 JUPYTER_SERVER_ROOT=/workspace
+JUPYTER_ALLOW_ORIGIN=https://ftntkktzid9f4p-8888.proxy.runpod.net
 ```
 
 Retain the existing private `JUPYTER_PASSWORD`: it is Jupyter's existing token,
 not a new password. The image uses it in process configuration and suppresses
-token-bearing startup URLs. Do not print it or place it in Git. Jupyter uses the
+token-bearing startup URLs. Its allowed browser Origin is the exact HTTPS
+Runpod proxy, derived from `RUNPOD_POD_ID` and `JUPYTER_PORT` or explicitly set
+with validated `JUPYTER_ALLOW_ORIGIN`. This allows cookie-authenticated API and
+terminal WebSocket requests when the proxy forwards an internal Host header.
+Other Origins remain blocked; token authentication and XSRF checks stay enabled. Do not print it or place it in Git. Jupyter uses the
 same root directory and authentication; its installed versions are pinned to the
 prior template's JupyterLab 4.6.4, Jupyter Server 2.21.1, and Notebook 7.6.3. The
 4bit profile does not start Jupyter unless explicitly enabled. SSH was not
