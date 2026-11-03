@@ -148,6 +148,7 @@ GPU_MEMORY_UTILIZATION=0.90
 SERVED_MODEL_NAME=qwen-bf16
 BF16_ROOT=/workspace/qwen-bf16
 CHAT_ENABLED=true
+CHAT_DIAGNOSTICS_ENABLED=true
 CHAT_HOST=0.0.0.0
 CHAT_PORT=8001
 CHAT_TOKEN_FILE=/workspace/chat/chat-token
@@ -160,6 +161,15 @@ JUPYTER_PORT=8888
 JUPYTER_SERVER_ROOT=/workspace
 JUPYTER_ALLOW_ORIGIN=https://ftntkktzid9f4p-8888.proxy.runpod.net
 ```
+
+`CHAT_DIAGNOSTICS_ENABLED=true` makes request diagnostics available from the
+BF16 gateway. Its health response advertises `diagnosticsVersion=1`; the frontend
+then exposes the BF16 model's independent Request diagnostics control in
+Advanced settings. This enables the capability, not diagnostics on every
+request: the user still opts in per model, and opted-in requests carry
+`X-Chat-Diagnostics: 1`. Ordinary requests retain their normal streaming behavior.
+The same image is used; changing this Pod environment value requires a restart
+for the gateway to read it.
 
 Retain the existing private `JUPYTER_PASSWORD`: it is Jupyter's existing token,
 not a new password. The image uses it in process configuration and suppresses
