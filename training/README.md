@@ -55,9 +55,12 @@ the other supervised services. Do not kill vLLM from the current Jupyter session
 For a temporary training window, set the existing BF16 Pod's **Container Start
 Command** to the following and apply the Pod restart:
 
-```bash
-bash -lc 'exec python3 /usr/local/lib/start-jupyter.py'
+```json
+{"entrypoint":["python3","/usr/local/lib/start-jupyter.py"],"cmd":[]}
 ```
+
+Use the explicit entrypoint object: a plain shell command in this field only
+overrides Docker CMD, which the serving entrypoint does not execute.
 
 Keep the official image, persistent volume, HTTP ports and existing environment
 unchanged. Jupyter retains its current authentication and port 8888. BF16 chat

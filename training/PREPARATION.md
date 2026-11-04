@@ -22,8 +22,11 @@ changed during preparation.
 
 **GPU training has not run. No trained adapter or measured training memory peak
 exists yet.** The next action is the temporary training-only startup described
-in [README.md](README.md). Browser automation could not verify Chrome's current
-URL and ended, so the Pod startup configuration was not changed automatically.
+in [README.md](README.md). Initial browser automation could not verify Chrome's
+URL. Access subsequently worked through the user's logged-in inner browser.
+Saving the prepared edit was then rejected by automatic approval review because
+it resets the running service and may erase container-local files. Explicit
+approval of that reset is pending; no Pod startup change has been applied.
 
 The staged source is `/workspace/qlora-smoke/source/training`. CPU validation and
 import logs are at `/workspace/qlora-smoke/validation.json` and
