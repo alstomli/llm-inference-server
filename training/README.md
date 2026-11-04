@@ -5,6 +5,9 @@ quality improvement. The eight hand-written inference explanations in
 `examples/smoke.jsonl` are disposable test data. Choose a behavior and separate
 training/validation/test examples before a useful training run.
 
+The first real run and fresh-process reload succeeded. See
+[SMOKE_RESULTS.md](SMOKE_RESULTS.md) for measured memory, timings and limits.
+
 ## What it does
 
 - Reads the cached `Qwen/Qwen3.8-27B` BF16 checkpoint at the deployment's exact
@@ -22,8 +25,8 @@ training/validation/test examples before a useful training run.
   loss history and PyTorch peak allocated/reserved GPU memory under a new run
   directory. These GPU figures do not include all driver/process overhead.
 - Checks actual 4bit modules, BF16 computation, finite loss and a changed adapter
-  weight. A fresh-process adapter reload and held-out quality evaluation remain
-  necessary before any serving deployment.
+  weight. `verify_adapter.py` checks a fresh-process reload; held-out quality
+  evaluation remains necessary before any serving deployment.
 
 ## Prepare on the existing BF16 Pod
 
@@ -83,6 +86,16 @@ steps. This is a free-memory guard, not a promise that every dataset fits.
 Monitor its terminal output and `/workspace/qlora-smoke/runs/*/run.json`.
 `status: completed` requires finite loss and a changed adapter parameter. Keep
 the adapter for the experiment; do not automatically enable it for users.
+
+After that process exits, verify the saved adapter in a fresh process:
+
+```bash
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/verify_adapter.py /workspace/qlora-smoke/runs/RUN_ID
+```
+
+This reloads the same base plus saved adapter, checks a finite completion loss,
+and generates a short smoke answer. `reload.json` records the adapter hash and
+result. It is a reload check using a training example, not a quality evaluation.
 
 ## Restore BF16 serving
 

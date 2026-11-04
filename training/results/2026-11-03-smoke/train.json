@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "purpose": "pipeline-smoke-test-only",
+  "base": {
+    "model_id": "Qwen/Qwen3.8-27B",
+    "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "source_dtype": "BF16",
+    "shards": 18,
+    "config_sha256": "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab"
+  },
+  "data_sha256": "be6233b28f4a09cc0101d97128ef91b636808d15071120bcc8856dd4207c1e08",
+  "examples": [
+    {
+      "id": "smoke-01",
+      "prompt_tokens": 42,
+      "target_tokens": 37,
+      "total_tokens": 79
+    },
+    {
+      "id": "smoke-02",
+      "prompt_tokens": 44,
+      "target_tokens": 32,
+      "total_tokens": 76
+    },
+    {
+      "id": "smoke-03",
+      "prompt_tokens": 45,
+      "target_tokens": 37,
+      "total_tokens": 82
+    },
+    {
+      "id": "smoke-04",
+      "prompt_tokens": 44,
+      "target_tokens": 32,
+      "total_tokens": 76
+    },
+    {
+      "id": "smoke-05",
+      "prompt_tokens": 47,
+      "target_tokens": 42,
+      "total_tokens": 89
+    },
+    {
+      "id": "smoke-06",
+      "prompt_tokens": 49,
+      "target_tokens": 32,
+      "total_tokens": 81
+    },
+    {
+      "id": "smoke-07",
+      "prompt_tokens": 48,
+      "target_tokens": 34,
+      "total_tokens": 82
+    },
+    {
+      "id": "smoke-08",
+      "prompt_tokens": 49,
+      "target_tokens": 35,
+      "total_tokens": 84
+    }
+  ],
+  "thinking": false,
+  "loss": "completion-only",
+  "max_length": 2048,
+  "steps": 8,
+  "seed": 42,
+  "status": "completed",
+  "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "total_vram_gib": 94.972412109375,
+  "initial_free_vram_gib": 94.42730712890625,
+  "quantization": {
+    "storage": "nf4",
+    "compute": "bfloat16",
+    "double_quantization": true
+  },
+  "lora": {
+    "rank": 8,
+    "alpha": 16,
+    "dropout": 0
+  },
+  "packages": {
+    "unsloth": "2026.11.1",
+    "unsloth-zoo": "2026.11.1",
+    "torch": "2.13.0+cu130",
+    "transformers": "5.15.1",
+    "peft": "0.21.2",
+    "bitsandbytes": "0.50.2"
+  },
+  "global_steps": 8,
+  "training_loss": 2.3367750197649,
+  "metrics": {
+    "train_runtime": 73.5697,
+    "train_samples_per_second": 0.109,
+    "train_steps_per_second": 0.109,
+    "total_flos": 101793209199264.0,
+    "train_loss": 2.3367750197649,
+    "epoch": 1.0
+  },
+  "loss_history": [
+    {
+      "loss": 3.3040924072265625,
+      "grad_norm": 2.879423141479492,
+      "learning_rate": 0.0002,
+      "epoch": 0.125,
+      "step": 1
+    },
+    {
+      "loss": 2.493497133255005,
+      "grad_norm": 2.4812235832214355,
+      "learning_rate": 0.0002,
+      "epoch": 0.25,
+      "step": 2
+    },
+    {
+      "loss": 2.957552433013916,
+      "grad_norm": 2.540924310684204,
+      "learning_rate": 0.0002,
+      "epoch": 0.375,
+      "step": 3
+    },
+    {
+      "loss": 2.0352416038513184,
+      "grad_norm": 2.2707128524780273,
+      "learning_rate": 0.0002,
+      "epoch": 0.5,
+      "step": 4
+    },
+    {
+      "loss": 1.9232144355773926,
+      "grad_norm": 2.6757166385650635,
+      "learning_rate": 0.0002,
+      "epoch": 0.625,
+      "step": 5
+    },
+    {
+      "loss": 2.2157058715820312,
+      "grad_norm": 5.857358932495117,
+      "learning_rate": 0.0002,
+      "epoch": 0.75,
+      "step": 6
+    },
+    {
+      "loss": 1.6286348104476929,
+      "grad_norm": 2.261282205581665,
+      "learning_rate": 0.0002,
+      "epoch": 0.875,
+      "step": 7
+    },
+    {
+      "loss": 2.136261463165283,
+      "grad_norm": 2.9762463569641113,
+      "learning_rate": 0.0002,
+      "epoch": 1.0,
+      "step": 8
+    },
+    {
+      "train_runtime": 73.5697,
+      "train_samples_per_second": 0.109,
+      "train_steps_per_second": 0.109,
+      "total_flos": 101793209199264.0,
+      "train_loss": 2.3367750197649,
+      "epoch": 1.0,
+      "step": 8
+    }
+  ],
+  "trainable_parameters": 58363904,
+  "quantized_linear_modules": 606,
+  "adapter_sample": "base_model.model.model.language_model.layers.0.linear_attn.out_proj.lora_B.default.weight",
+  "adapter_sample_changed": true,
+  "peak_allocated_gib": 17.487613677978516,
+  "peak_reserved_gib": 17.951171875
+}
