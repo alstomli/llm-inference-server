@@ -31,7 +31,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         if self.path == '/v1/models':
-            self.wfile.write(json.dumps({'data': [{'id': os.environ.get('SERVED_MODEL_NAME', 'qwen'), 'max_model_len': int(os.environ.get('MAX_MODEL_LEN', '40960'))}]}).encode())
+            base = sys.argv[sys.argv.index('--served-model-name') + 1]
+            cards = [{'id': base, 'max_model_len': int(os.environ.get('MAX_MODEL_LEN', '40960'))}]
+            if '--lora-modules' in sys.argv:
+                module = json.loads(sys.argv[sys.argv.index('--lora-modules') + 1])
+                cards.append({'id': module['name'], 'root': module['path'], 'parent': module['base_model_name'], 'max_model_len': None})
+            self.wfile.write(json.dumps({'data': cards}).encode())
         else:
             self.wfile.write(b'vllm:num_requests_running 0\\n')
     def log_message(self, *args):
@@ -59,7 +64,12 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
             'CHAT_HOST': '127.0.0.1',
             'CHAT_PORT': str(self.chat_port),
             'CHAT_TOKEN_FILE': str(self.token_file),
+            'JUPYTER_ENABLED': 'false',
         }
+        for key in ('MODEL_PROFILE', 'MODEL_ID', 'SERVED_MODEL_NAME', 'BF16_ROOT',
+                    'VLLM_BASE_MODEL_NAME', 'LORA_ADAPTER_PATH', 'MAX_LORA_RANK',
+                    'CPU_OFFLOAD_GB', 'MAX_NUM_SEQS', 'MAX_MODEL_LEN'):
+            self.env.pop(key, None)
         self.process = None
 
     def tearDown(self):
@@ -139,6 +149,7 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.ready(8000)
         args = json.loads(args_file.read_text())
         self.assertEqual(args[args.index('--max-num-seqs') + 1], '2')
+        self.assertNotIn('--enable-lora', args)
         buckets = json.loads(args[args.index('--custom-histogram-buckets') + 1])
         self.assertEqual(set(buckets), {'time_to_first_token'})
         expected = [0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.25, 0.75]
@@ -223,6 +234,7 @@ def hf_hub_download(model_id, filename, revision, local_dir):
         self.assertIn('--enable-prefix-caching', args)
         self.assertIn('--enforce-eager', args)
         self.assertNotIn('--language-model-only', args)
+        self.assertNotIn('--enable-lora', args)
         state = json.loads((Path(env['BF16_ROOT']) / 'model-manifest.json').read_text())
         self.assertTrue(state['complete'])
         self.assertEqual(state['tensor_dtypes'], {'BF16': 1})
@@ -240,6 +252,67 @@ def hf_hub_download(model_id, filename, revision, local_dir):
         self.assertEqual(args[args.index('--cpu-offload-gb') + 1], '45')
         self.assertEqual(args[args.index('--max-model-len') + 1], '8192')
         self.assertEqual(args[args.index('--max-num-seqs') + 1], '1')
+
+    def lora_adapter(self, env):
+        adapter = self.root / 'adapter with spaces'
+        adapter.mkdir()
+        (adapter / 'adapter_config.json').write_text(json.dumps({
+            'peft_type': 'LORA', 'task_type': 'CAUSAL_LM', 'r': 8,
+            'base_model_name_or_path': str(Path(env['BF16_ROOT']) / 'model'), 'bias': 'none'}))
+        header = json.dumps({
+            'base_model.model.layer.lora_A.weight': {'dtype': 'F32', 'shape': [8, 1], 'data_offsets': [0, 32]},
+            'base_model.model.layer.lora_B.weight': {'dtype': 'F32', 'shape': [1, 8], 'data_offsets': [32, 64]},
+        }).encode()
+        (adapter / 'adapter_model.safetensors').write_bytes(struct.pack('<Q', len(header)) + header + b'\0' * 64)
+        return str(adapter)
+
+    def test_bf16_lora_registers_adapter_and_preserves_gateway_alias_and_limits(self):
+        env = self.bf16_environment()
+        adapter = self.lora_adapter(env)
+        args_file = self.root / 'vllm-args.json'
+        self.start(CHAT_ENABLED='true', LORA_ADAPTER_PATH=adapter, FAKE_ARG_FILE=str(args_file), **env)
+        health = json.loads(self.ready(self.chat_port, True, '/health'))
+        self.assertEqual(health['model'], 'qwen-bf16')
+        self.assertEqual(health['limits']['contextTokens'], 40960)
+        args = json.loads(args_file.read_text())
+        self.assertEqual(args[args.index('--served-model-name') + 1], 'qwen-bf16-base')
+        self.assertIn('--enable-lora', args)
+        self.assertEqual(args[args.index('--max-lora-rank') + 1], '8')
+        module = json.loads(args[args.index('--lora-modules') + 1])
+        self.assertEqual(module, {'name': 'qwen-bf16', 'path': adapter, 'base_model_name': 'qwen-bf16-base'})
+        self.assertIn(b'vllm:num_requests_running', self.ready(self.port, True))
+
+    def test_lora_supports_explicit_base_alias_and_rank_capacity(self):
+        env = self.bf16_environment()
+        args_file = self.root / 'vllm-args.json'
+        self.start(METRICS_ENABLED='false', LORA_ADAPTER_PATH=self.lora_adapter(env),
+                   VLLM_BASE_MODEL_NAME='bf16-original', MAX_LORA_RANK='16', FAKE_ARG_FILE=str(args_file), **env)
+        self.ready(8000)
+        args = json.loads(args_file.read_text())
+        self.assertEqual(args[args.index('--served-model-name') + 1], 'bf16-original')
+        self.assertEqual(args[args.index('--max-lora-rank') + 1], '16')
+
+    def test_invalid_lora_configuration_refuses_startup(self):
+        env = self.bf16_environment()
+        adapter = self.lora_adapter(env)
+        for overrides in ({'MODEL_PROFILE': '4bit'}, {'LORA_ADAPTER_PATH': str(self.root / 'missing')},
+                          {'VLLM_BASE_MODEL_NAME': 'qwen-bf16'}, {'MAX_LORA_RANK': '1'}, {'MAX_LORA_RANK': '4'}):
+            with self.subTest(overrides=overrides):
+                settings = {**env, 'LORA_ADAPTER_PATH': adapter, **overrides}
+                self.start(**settings)
+                output = self.process.communicate(timeout=10)[0]
+                self.assertNotEqual(self.process.returncode, 0)
+                self.assertTrue('LoRA' in output or 'LORA' in output)
+                self.closed(8000)
+                self.closed(self.port)
+                self.closed(self.chat_port)
+
+    def test_separate_base_alias_without_adapter_refuses_startup(self):
+        self.start(VLLM_BASE_MODEL_NAME='unrouted-base')
+        output = self.process.communicate(timeout=10)[0]
+        self.assertNotEqual(self.process.returncode, 0)
+        self.assertIn('must match SERVED_MODEL_NAME', output)
+        self.closed(8000)
 
     def test_invalid_profile_fails_before_starting_services(self):
         self.start(MODEL_PROFILE='unknown')

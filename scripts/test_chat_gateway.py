@@ -19,12 +19,14 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.forwarded = []
         self.tokenizer_requests = 0
+        self.tokenizer_models = []
         self.tokenizer_failure = False
         self.tokenizer_invalid = False
         self.model_failure = False
         self.oversized = False
         self.token_count = None
         self.model_context = 40960
+        self.model_cards = None
         self.tokenize_delay = 0
         self.reply_delay = 0
         self.stream_parts = None
@@ -73,10 +75,12 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             if request.url.path == '/health':
                 return httpx.Response(503 if self.model_failure else 200)
             if request.url.path == '/v1/models':
-                return httpx.Response(200, json={'data': [{'id': 'qwen', 'max_model_len': self.model_context}]})
+                return httpx.Response(200, json={'data': self.model_cards if self.model_cards is not None
+                                                 else [{'id': 'qwen', 'max_model_len': self.model_context}]})
             body = json.loads(request.content)
             if request.url.path == '/tokenize':
                 self.tokenizer_requests += 1
+                self.tokenizer_models.append(body['model'])
                 await asyncio.sleep(self.tokenize_delay)
                 if self.tokenizer_failure:
                     return httpx.Response(503)
@@ -211,6 +215,31 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         for path in ['/metrics', '/docs', '/openapi.json', '/v1/models']:
             self.assertEqual((await self.client.get(path, headers=AUTH)).status_code, 404)
         self.assertEqual((await self.client.get('/health', headers=AUTH)).status_code, 200)
+
+    async def test_adapter_inherits_only_its_named_base_capacity_and_routes_to_adapter(self):
+        self.model_cards = [{'id': 'unrelated', 'max_model_len': 40960},
+                            {'id': 'qwen-base', 'max_model_len': 8192},
+                            {'id': 'qwen', 'parent': 'qwen-base', 'max_model_len': None}]
+        health = (await self.client.get('/health', headers=AUTH)).json()
+        self.assertTrue(health['ready'])
+        self.assertEqual(health['model'], 'qwen')
+        self.assertEqual(health['limits']['contextTokens'], 8192)
+        settings = {**gateway.SETTINGS_DEFAULT, 'contextTokens': 8192, 'outputTokens': 128}
+        self.assertEqual((await self.send(settings=settings, max_tokens=128)).status_code, 200)
+        self.assertEqual(self.forwarded[-1]['model'], 'qwen')
+        self.assertEqual(self.tokenizer_models[-1], 'qwen')
+        self.assertEqual((await self.send()).status_code, 400)
+
+    async def test_adapter_missing_or_invalid_base_capacity_fails_closed(self):
+        for cards in ([{'id': 'other', 'max_model_len': 40960}],
+                      [{'id': 'qwen', 'parent': 'missing'}, {'id': 'other', 'max_model_len': 40960}],
+                      [{'id': 'qwen', 'parent': 'base'}, {'id': 'base', 'max_model_len': '40960'}],
+                      [{'id': 'qwen', 'parent': 'base', 'max_model_len': 0}, {'id': 'base', 'max_model_len': 40960}]):
+            with self.subTest(cards=cards):
+                self.model_cards = cards
+                self.assertEqual((await self.client.get('/health', headers=AUTH)).status_code, 503)
+                self.assertEqual((await self.send()).status_code, 503)
+        self.assertEqual(self.forwarded, [])
 
     async def test_prefix_reuse_uses_unique_server_salts_only_when_disabled(self):
         self.assertTrue((await self.client.get('/health', headers=AUTH)).json()['limits']['reuseCachedPrefixes'])

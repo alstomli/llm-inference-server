@@ -5,6 +5,10 @@ The active BF16 hardware is now RTX PRO 6000 Pod `o6f2qoctk798tq`, with
 for current endpoints, configuration and verification. The RTX PRO 4500 SE
 measurements and 40 GiB offload settings below describe the historical deployment.
 
+The optional [LoRA serving guide](LORA-SERVING.md) describes the prepared startup
+configuration for using a trained adapter through the existing BF16 chatbot
+option. That guide does not assert a completed adapter rollout.
+
 The BF16 Pod's first official release uses the same `zihan000/qwen-inference`
 image and versioned-image/digest workflow as the 4bit Pod. Its image starts from
 `vllm/vllm-openai:v0.32.0`; application code and Jupyter dependencies are installed
