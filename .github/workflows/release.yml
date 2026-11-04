@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           docker build --platform linux/amd64 -t inference-release .
-          for test in test_metrics_relay.py test_chat_gateway.py test_start_server.py test_start_jupyter.py; do
+          for test in test_metrics_relay.py test_chat_gateway.py test_start_server.py test_start_jupyter.py test_lora_adapter.py; do
             docker run --rm --entrypoint python3 --tmpfs /workspace -v "$PWD/scripts:/tests:ro" inference-release "/tests/$test"
           done
       - name: Log in to Docker Hub

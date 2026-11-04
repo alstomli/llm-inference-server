@@ -14,6 +14,7 @@ COPY scripts/start-jupyter.py /usr/local/lib/start-jupyter.py
 COPY scripts/start-server.sh /usr/local/bin/start-server
 COPY scripts/metrics-relay.py /usr/local/lib/metrics-relay.py
 COPY scripts/chat-gateway.py /usr/local/lib/chat-gateway.py
+COPY scripts/validate-lora-adapter.py /usr/local/lib/validate-lora-adapter.py
 COPY deployments/qwen-bf16/prepare_model.py /usr/local/lib/prepare-bf16-model.py
 RUN chmod +x /usr/local/bin/start-server
 ENV HF_HOME=/workspace/huggingface

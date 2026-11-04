@@ -4,6 +4,12 @@ The 4bit and BF16 Pods can use one vLLM-based image with `MODEL_PROFILE=4bit`
 (default) or `MODEL_PROFILE=bf16`. See the [official BF16 image deployment](deployments/qwen-bf16/VLLM-IMAGE.md)
 for shared settings, the one-time migration, and versioned-image rollback.
 
+For a trained local adapter, see the [BF16 LoRA serving configuration](deployments/qwen-bf16/LORA-SERVING.md).
+It preserves the chatbot's BF16 alias while registering a separate private base
+alias, with adapter validation and rollback instructions. Activation requires
+the updated application image and serving checks; saving an adapter alone does
+not enable it in chat.
+
 BF16 Pod `ftntkktzid9f4p` is verified on its first official image release **0.10.1**,
 with the same 40,960-token context and two active requests as the 4bit Pod, using
 40 GiB CPU offloading. Its [verification record and deployment guide](deployments/qwen-bf16/VLLM-IMAGE.md)

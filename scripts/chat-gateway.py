@@ -152,7 +152,13 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
         response = await client.get('/v1/models', timeout=5)
         response.raise_for_status()
         models = response.json().get('data', [])
-        capacity = next((item.get('max_model_len') for item in models if item.get('id') == model), None)
+        selected = next((item for item in models if item.get('id') == model), {})
+        capacity = selected.get('max_model_len')
+        # vLLM 0.32 lists LoRA cards without max_model_len; inherit capacity only
+        # from that card's explicitly named base, never an arbitrary model.
+        if capacity is None and isinstance(selected.get('parent'), str):
+            parent = next((item for item in models if item.get('id') == selected['parent']), {})
+            capacity = parent.get('max_model_len')
         if type(capacity) is not int or capacity < SETTINGS_MIN['contextTokens']:
             raise ValueError('Serving context unavailable')
         return min(context, capacity)

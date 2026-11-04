@@ -26,6 +26,22 @@ case "$profile" in
   *) echo 'MODEL_PROFILE must be 4bit or bf16.' >&2; exit 1 ;;
 esac
 
+# The gateway targets SERVED_MODEL_NAME. With LoRA enabled that alias belongs to
+# the adapter, and the base must have a separate name in vLLM's model registry.
+base_model_name="${VLLM_BASE_MODEL_NAME:-$SERVED_MODEL_NAME}"
+lora_module=""
+if [[ -n "${LORA_ADAPTER_PATH:-}" ]]; then
+  [[ "$profile" == bf16 ]] || { echo 'LORA_ADAPTER_PATH is supported only for MODEL_PROFILE=bf16.' >&2; exit 1; }
+  base_model_name="${VLLM_BASE_MODEL_NAME:-${SERVED_MODEL_NAME}-base}"
+  lora_module="$(python3 /usr/local/lib/validate-lora-adapter.py \
+    --path "$LORA_ADAPTER_PATH" --base-model "$MODEL_ID" \
+    --base-name "$base_model_name" --name "$SERVED_MODEL_NAME" \
+    --max-rank "${MAX_LORA_RANK:-8}")"
+elif [[ "$base_model_name" != "$SERVED_MODEL_NAME" ]]; then
+  echo 'Without LORA_ADAPTER_PATH, VLLM_BASE_MODEL_NAME must match SERVED_MODEL_NAME.' >&2
+  exit 1
+fi
+
 # Bind only within the Pod unless a secure ingress is configured.
 host="${VLLM_HOST:-127.0.0.1}"
 if [[ "$host" != "127.0.0.1" && -z "${VLLM_API_KEY:-}" ]]; then
@@ -33,7 +49,7 @@ if [[ "$host" != "127.0.0.1" && -z "${VLLM_API_KEY:-}" ]]; then
   exit 1
 fi
 args=(serve "${MODEL_ID:-avyukth/Qwen3.8-27B-AWQ-INT4}"
-  --served-model-name "${SERVED_MODEL_NAME:-qwen}"
+  --served-model-name "$base_model_name"
   --host "$host" --port "${VLLM_PORT:-8000}"
   --max-model-len "${MAX_MODEL_LEN:-40960}"
   --max-num-seqs "${MAX_NUM_SEQS:-2}"
@@ -47,6 +63,9 @@ if [[ "$profile" == bf16 ]]; then
     --safetensors-load-strategy eager --limit-mm-per-prompt '{"image":1,"video":0}')
 else
   args+=(--language-model-only)
+fi
+if [[ -n "$lora_module" ]]; then
+  args+=(--enable-lora --max-lora-rank "${MAX_LORA_RANK:-8}" --lora-modules "$lora_module")
 fi
 
 start_model() {
