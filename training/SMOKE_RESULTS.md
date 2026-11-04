@@ -2,7 +2,8 @@
 
 Training and a fresh-process adapter reload both succeeded on the existing
 BF16 Pod. This establishes a working training pipeline; quality improvement
-has not been evaluated. Serving restoration is still being verified.
+has not been evaluated. Original BF16 serving was restored and verified after
+the experiment; the trained adapter is saved separately.
 
 ## Configuration
 
@@ -43,6 +44,8 @@ The original BF16 files were not overwritten.
 | Reloaded completion loss | 1.5945 on one training example |
 | Reloaded generation | 17 tokens, ended with the expected end token |
 | Adapter after serving reset | Same SHA-256 checksum; persisted successfully |
+| Original BF16 chat after restoration | Ready; real streamed reply completed with `stop` |
+| Authenticated metrics after restoration | HTTP 200 |
 
 The GPU peak was sampled once per second with `nvidia-smi`; brief spikes can
 fall between samples. PyTorch's counters cover its allocator, not every driver
@@ -71,6 +74,11 @@ was in the training data; it is not an independent quality evaluation.
 The optional xFormers wheel did not match the image's PyTorch build; Unsloth
 fell back to PyTorch attention. This run is not a training-speed benchmark.
 
+The restored vLLM process again uses BF16 weights, zero CPU offload, context
+40,960 and two sequences, with the original image and packages. Its first cold
+verification request took about 35 seconds after the reset; this single request
+is not a warm serving latency benchmark. No adapter was enabled for serving.
+
 ## Artifacts and next step
 
 The adapter and tokenizer are on the attached persistent volume under:
@@ -87,7 +95,8 @@ Weights remain on the Pod; only metadata is included in this repository.
 Raw evidence: [training](results/2026-11-03-smoke/train.json),
 [job and GPU peak](results/2026-11-03-smoke/job.json),
 [reload](results/2026-11-03-smoke/reload.json),
-[post-reset artifact/config check](results/2026-11-03-smoke/post-restore.json).
+[post-reset artifact/config check](results/2026-11-03-smoke/post-restore.json),
+[restored chat and metrics](results/2026-11-03-smoke/serving-restored.json).
 The full training log and one-second memory trace remain under
 `/workspace/qlora-smoke/jobs/20261104T042842Z` and in the local tools archive.
 

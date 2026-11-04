@@ -1,0 +1,40 @@
+{
+  "pod_id": "o6f2qoctk798tq",
+  "base_serving_restored": true,
+  "health": {
+    "ready": true,
+    "model": "qwen-bf16",
+    "settingsVersion": 1,
+    "diagnosticsVersion": 1,
+    "admission": {
+      "activeRequests": 0,
+      "waitingRequests": 0,
+      "maxConcurrentRequests": 2,
+      "maxWaitingRequests": 6
+    },
+    "limits": {
+      "inputCharacters": 120000,
+      "outputTokens": 10240,
+      "contextTokens": 40960,
+      "historyMessages": 799,
+      "historyBytes": 580000,
+      "requestBytes": 640000,
+      "timeoutSeconds": 2400,
+      "safetyTokens": 4096,
+      "reuseCachedPrefixes": true
+    }
+  },
+  "reply": "BF16 serving restored.",
+  "finish_reason": "stop",
+  "usage": {
+    "prompt_tokens": 47,
+    "total_tokens": 54,
+    "completion_tokens": 7,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  },
+  "request_seconds": 34.98291220003739,
+  "metrics_http_status": 200,
+  "adapter_enabled_for_serving": false
+}

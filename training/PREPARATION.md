@@ -20,15 +20,12 @@ changed during preparation.
   invalid examples are rejected, and the base revision must match.
 - `bash -n` passed for both training shell scripts on the Pod.
 
-**GPU training has not run. No trained adapter or measured training memory peak
-exists yet.** The next action is the temporary training-only startup described
-in [README.md](README.md). Initial browser automation could not verify Chrome's
-URL. Access subsequently worked through the user's logged-in inner browser.
-Saving the prepared edit was then rejected by automatic approval review because
-it resets the running service and may erase container-local files. Explicit
-approval of that reset is pending; no Pod startup change has been applied.
+These were preflight checks, before GPU training. The user subsequently
+approved the temporary Pod reset, and the eight-step training run plus a
+fresh-process adapter reload both completed successfully. The actual results,
+measured memory and limitations are in [SMOKE_RESULTS.md](SMOKE_RESULTS.md).
 
 The staged source is `/workspace/qlora-smoke/source/training`. CPU validation and
-import logs are at `/workspace/qlora-smoke/validation.json` and
+import logs from preparation are at `/workspace/qlora-smoke/validation.json` and
 `/workspace/qlora-smoke/import-check.log`. These checks do not advance the
 learning path's fine-tuning completion status.
