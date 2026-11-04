@@ -1,7 +1,7 @@
 # QLoRA training on the original BF16 checkpoint
 
-`qlora_smoke.py` now supports a full training run, while retaining its filename
-and an explicit `--smoke-test` mode. It trains separate language LoRA adapters;
+`qlora_tune.py` supports a full training run and an explicit `--smoke-test` mode.
+It trains separate language LoRA adapters;
 it never changes the cached original checkpoint or activates an adapter in chat.
 Use the existing `setup-qlora.sh` environment and the training-only Pod mode
 described below. This is a single-GPU runner, not a distributed training setup.
@@ -49,7 +49,7 @@ ignored by Git. Do not commit private training data or model artifacts.
 Validate before allocating model memory:
 
 ```bash
-/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py --validate-only
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_tune.py --validate-only
 ```
 
 By default, a seeded split holds out 10% of distinct conversation prompts
@@ -63,7 +63,7 @@ Alternatively, use a separately reviewed validation JSON file of the same
 format; all of `train.json` is then used for training:
 
 ```bash
-/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py \
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_tune.py \
   --eval-data /workspace/qlora-smoke/source/training/examples/validation.json \
   --validate-only
 ```
@@ -75,7 +75,7 @@ for your final behavior assessment.
 Once the GPU is released, start a run (this command actually trains):
 
 ```bash
-/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_tune.py
 ```
 
 Defaults are three epochs, batch size 1, gradient accumulation 4 (effective
@@ -87,7 +87,7 @@ These are starting settings, not tuned recommendations for an arbitrary dataset.
 is no longer a 32-step ceiling. For example:
 
 ```bash
-/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py \
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_tune.py \
   --epochs 3 --learning-rate 1e-4 --batch-size 1 \
   --gradient-accumulation-steps 4 --rank 8 --max-length 2048 \
   --output /workspace/qlora-smoke/runs/my-training-run
@@ -130,7 +130,7 @@ An interrupted run can resume from its last complete checkpoint. Supply the
 same data and training arguments as before, plus:
 
 ```bash
-/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py \
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_tune.py \
   --resume-from-checkpoint /workspace/qlora-smoke/runs/RUN_ID/checkpoints/checkpoint-N
 ```
 
@@ -179,7 +179,7 @@ checkpoint remains under `/workspace/qwen-bf16/model`; never overwrite it.
 
 ```bash
 bash /workspace/qlora-smoke/source/training/setup-qlora.sh
-/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py --smoke-test --data /workspace/qlora-smoke/source/training/examples/smoke.jsonl --validate-only
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_tune.py --smoke-test --data /workspace/qlora-smoke/source/training/examples/smoke.jsonl --validate-only
 ```
 
 The virtual environment reuses the image's PyTorch binaries and pins their

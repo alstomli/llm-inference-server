@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from qlora_smoke import (check_run_directory, parse_args, prompt_key, read_examples,
+from qlora_tune import (check_run_directory, parse_args, prompt_key, read_examples,
                          run_contract, split_examples, trainer_settings, write_json)
 
 

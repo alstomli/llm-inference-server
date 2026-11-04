@@ -5,7 +5,7 @@ import json
 import math
 from pathlib import Path
 
-from qlora_smoke import checkpoint_identity, read_examples, tokenize_examples, write_json
+from qlora_tune import checkpoint_identity, read_examples, tokenize_examples, write_json
 
 
 def main():

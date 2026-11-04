@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from qlora_smoke import BASE_ID, BASE_REVISION, checkpoint_identity, read_examples, tokenize_examples
+from qlora_tune import BASE_ID, BASE_REVISION, checkpoint_identity, read_examples, tokenize_examples
 
 
 class Tokenizer:

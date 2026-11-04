@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from qlora_smoke import (CompletionCollator, check_run_directory, parse_args,
+from qlora_tune import (CompletionCollator, check_run_directory, parse_args,
                          run_contract, trainer_settings, write_json)
 
 HAS_STACK = all(importlib.util.find_spec(name) for name in ('torch', 'transformers', 'peft'))
