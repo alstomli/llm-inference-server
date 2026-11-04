@@ -1,6 +1,150 @@
-# QLoRA smoke test on the original BF16 checkpoint
+# QLoRA training on the original BF16 checkpoint
 
-This is an eight-step pipeline check, not a production fine-tune or evidence of
+`qlora_smoke.py` now supports a full training run, while retaining its filename
+and an explicit `--smoke-test` mode. It trains separate language LoRA adapters;
+it never changes the cached original checkpoint or activates an adapter in chat.
+Use the existing `setup-qlora.sh` environment and the training-only Pod mode
+described below. This is a single-GPU runner, not a distributed training setup.
+
+## Prepare your dataset
+
+The default input is `examples/train.json`, relative to this script, regardless
+of your terminal's current directory. Create it on the Pod at:
+
+```text
+/workspace/qlora-smoke/source/training/examples/train.json
+```
+
+Use a **JSON array**, not JSONL or an OpenAI messages-only export:
+
+```json
+[
+  {
+    "id": "train-001",
+    "prompt": [{"role": "user", "content": "What is TTFT?"}],
+    "completion": "TTFT is the time from a request until the first generated token is returned. Specify the measurement boundary when comparing results."
+  },
+  {
+    "id": "train-002",
+    "prompt": [{"role": "user", "content": "What does the KV cache contain?"}],
+    "completion": "The KV cache holds attention keys and values for earlier tokens so later generation can reuse them. It uses GPU memory and does not update model weights."
+  }
+]
+```
+
+These two records demonstrate the format, not a useful training dataset. Supply
+reviewed answers for your chosen behavior. IDs must be unique. An optional
+system message is followed by alternating user/assistant messages ending in a
+user message. `completion` is the desired final answer as plain text, without
+chat control tokens or thinking tags. Only that answer and its end token are
+supervised; earlier messages are context. JSONL inputs remain supported with
+`--data path/to/file.jsonl`.
+
+The script does not create `train.json` or substitute the smoke examples when
+it is missing. Local `train.json`, `validation.json` and run directories are
+ignored by Git. Do not commit private training data or model artifacts.
+
+## Validate and train
+
+Validate before allocating model memory:
+
+```bash
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py --validate-only
+```
+
+By default, a seeded split holds out 10% of distinct conversation prompts
+(rounded up, with at least one prompt on each side). Identical prompts, with
+the default system message normalized, remain together. You need at least two
+distinct prompts. This prevents exact-prompt overlap; review related or
+paraphrased examples yourself to prevent semantic leakage. A tiny validation
+split gives noisy results.
+
+Alternatively, use a separately reviewed validation JSON file of the same
+format; all of `train.json` is then used for training:
+
+```bash
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py \
+  --eval-data /workspace/qlora-smoke/source/training/examples/validation.json \
+  --validate-only
+```
+
+Explicit training/validation files must not share IDs or exact conversation
+prompts. Keep an additional test set out of both training and model selection
+for your final behavior assessment.
+
+Once the GPU is released, start a run (this command actually trains):
+
+```bash
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py
+```
+
+Defaults are three epochs, batch size 1, gradient accumulation 4 (effective
+batch 4), learning rate `2e-4`, linear scheduling with 3% warmup (rounded up to
+whole updates and capped below the total updates), rank 8, alpha 16, dropout 0,
+and maximum sequence length 2048.
+These are starting settings, not tuned recommendations for an arbitrary dataset.
+`--steps N` optionally overrides epochs with an optimizer-update limit; there
+is no longer a 32-step ceiling. For example:
+
+```bash
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py \
+  --epochs 3 --learning-rate 1e-4 --batch-size 1 \
+  --gradient-accumulation-steps 4 --rank 8 --max-length 2048 \
+  --output /workspace/qlora-smoke/runs/my-training-run
+```
+
+Both input and answer must fit the limit; examples are rejected rather than
+truncated. Longer sequences, larger batches and larger ranks need more GPU
+memory. The 32 GiB free-memory guard is not a guarantee that those settings fit.
+The cached base is quantized to NF4 with BF16 computation; only adapters train.
+
+## Validation, checkpoints and output
+
+Before training, validation loss is measured with the new, initially zero-effect
+adapter. Validation and checkpoint saving then happen after each epoch.
+`--save-steps N` switches both to every N optimizer updates, including the final
+update. By default, two checkpoints are retained, protecting the best and latest
+as needed by Trainer. Use `--save-total-limit` to change the retention limit
+(minimum 2). The final `adapter/` is exported from the checkpoint with the lowest
+validation loss, which may differ from the latest resumable checkpoint.
+
+```text
+/workspace/qlora-smoke/runs/<timestamp>/
+  run.json               # Configuration, hashes, IDs, loss history and memory
+  train.json             # Exact parsed training split for this run
+  validation.json        # Exact parsed validation split
+  checkpoints/checkpoint-N/
+                         # Adapter, optimizer, scheduler, RNG and Trainer state
+  adapter/               # Selected adapter weights and configuration
+  tokenizer/
+```
+
+`run.json` records initial/final validation losses and their difference
+(`validation_loss_delta`; negative means lower loss), the best checkpoint,
+training loss, settings, data hashes, base revision, package versions and
+PyTorch peak memory. Validation loss is not an answer-quality score. Compare
+generated answers from the base and adapter on your untouched test prompts
+before choosing an adapter for chat. Serving deployment is a separate step.
+
+An interrupted run can resume from its last complete checkpoint. Supply the
+same data and training arguments as before, plus:
+
+```bash
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py \
+  --resume-from-checkpoint /workspace/qlora-smoke/runs/RUN_ID/checkpoints/checkpoint-N
+```
+
+The output directory is inferred from that checkpoint. If the original command
+used nondefault flags, repeat them. Data, split and training configuration must
+match the saved run. Completed runs are not resumed or overwritten. Checkpoints
+are saved at the configured interval; interruption before the first checkpoint
+requires starting a new run. Resume only your own trusted checkpoints, which
+include serialized optimizer/RNG state. Resume restores training state, rather
+than merely loading the final adapter. It does not extend a completed run.
+
+## Original eight-step smoke test
+
+The explicit smoke mode is an eight-step pipeline check, not evidence of
 quality improvement. The eight hand-written inference explanations in
 `examples/smoke.jsonl` are disposable test data. Choose a behavior and separate
 training/validation/test examples before a useful training run.
@@ -35,7 +179,7 @@ checkpoint remains under `/workspace/qwen-bf16/model`; never overwrite it.
 
 ```bash
 bash /workspace/qlora-smoke/source/training/setup-qlora.sh
-/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py --validate-only
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_smoke.py --smoke-test --data /workspace/qlora-smoke/source/training/examples/smoke.jsonl --validate-only
 ```
 
 The virtual environment reuses the image's PyTorch binaries and pins their
@@ -79,7 +223,7 @@ bash /workspace/qlora-smoke/source/training/setup-qlora.sh
 bash /workspace/qlora-smoke/source/training/run-smoke.sh
 ```
 
-The run refuses to start if less than 32 GiB of GPU memory is free. Default
+The smoke wrapper refuses to start if less than 32 GiB of GPU memory is free. Its
 settings are batch size 1, 2,048 maximum tokens, rank 8, and eight optimizer
 steps. This is a free-memory guard, not a promise that every dataset fits.
 
@@ -111,5 +255,12 @@ is needed. The original checkpoint and saved adapter are separate directories.
 python -m unittest discover -s training -p 'test_*.py' -v
 ```
 
+The installed-stack test is skipped when Torch/Transformers/PEFT are absent.
+In the QLoRA venv it uses a tiny, randomly initialized CPU model to exercise
+epoch/step evaluation, checkpoint interruption/resume, retention and adapter
+export. It does not load Qwen or establish GPU/Unsloth training performance.
+
 Sources: [Unsloth Qwen3.8 training guide](https://unsloth.ai/docs/models/qwen3.8/train),
-[PEFT quantization](https://huggingface.co/docs/peft/developer_guides/quantization).
+[PEFT quantization](https://huggingface.co/docs/peft/developer_guides/quantization),
+[Trainer](https://huggingface.co/docs/transformers/en/main_classes/trainer),
+[Unsloth checkpoint recovery](https://unsloth.ai/docs/basics/finetuning-from-last-checkpoint).
