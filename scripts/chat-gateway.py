@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """Authenticated, streaming chat-only ingress for the private vLLM server."""
 import asyncio
+import base64
 from collections import deque
 from contextlib import asynccontextmanager
 import hmac
+from io import BytesIO
 import json
 import os
 import re
 import secrets
+import struct
 from pathlib import Path
 import time
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from PIL import Image
 
 MAX_BODY = 640_000
 SETTINGS_MAX = {
@@ -28,6 +32,9 @@ SETTINGS_MIN = {
     'timeoutSeconds': 1, 'safetyTokens': 0,
 }
 SYSTEM = 'You are Qwen, a helpful personal assistant. Answer clearly and directly. Use Markdown when helpful.'
+IMAGE_FORMATS = {'image/jpeg': 'JPEG', 'image/png': 'PNG', 'image/webp': 'WEBP'}
+MAX_IMAGE_BYTES = 256 * 1024
+MAX_IMAGE_DIMENSION = 2048
 
 
 class AdmissionQueue:
@@ -112,13 +119,32 @@ def validate(value):
     return cleaned, maximum, temperature
 
 
-def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None, diagnostics_enabled=None, concurrency=2, base_model=None):
+def validate_image(value):
+    if not isinstance(value, str):
+        raise ValueError('Invalid image attachment')
+    prefix, _, encoded = value.partition(';base64,')
+    image_format = IMAGE_FORMATS.get(prefix.removeprefix('data:')) if prefix.startswith('data:') else None
+    if image_format is None or not encoded or len(encoded) > ((MAX_IMAGE_BYTES + 2) // 3) * 4:
+        raise ValueError('Invalid image attachment')
+    raw = base64.b64decode(encoded, validate=True)
+    if len(raw) > MAX_IMAGE_BYTES or base64.b64encode(raw).decode('ascii') != encoded:
+        raise ValueError('Invalid image attachment')
+    with Image.open(BytesIO(raw), formats=[image_format]) as image:
+        if not all(1 <= size <= MAX_IMAGE_DIMENSION for size in image.size) or getattr(image, 'is_animated', False):
+            raise ValueError('Invalid image attachment')
+        image.load()
+    return value
+
+
+def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None,
+               diagnostics_enabled=None, concurrency=2, base_model=None, model_profile='4bit', image_input_enabled=False):
     if base_model is not None and (not isinstance(base_model, str) or not base_model or base_model == model):
         raise ValueError('Base and adapter aliases must be distinct')
     if not isinstance(token, str) or len(token) < 32:
         raise ValueError('A chat token of at least 32 characters is required')
     if diagnostics_enabled is None:
         diagnostics_enabled = os.environ.get('CHAT_DIAGNOSTICS_ENABLED') == 'true'
+    image_input = model_profile == 'bf16' and image_input_enabled is True
     headers = {}
     if os.environ.get('VLLM_API_KEY'):
         headers['Authorization'] = 'Bearer ' + os.environ['VLLM_API_KEY']
@@ -181,6 +207,10 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                         'adapterToggleVersion': 1 if base_model is not None else 0,
                         'adapterToggleAvailable': base_model is not None,
                         'diagnosticsVersion': 1 if diagnostics_enabled else 0,
+                        **({'imageInputVersion': 1, 'imageInput': {
+                            'maxBytes': MAX_IMAGE_BYTES, 'maxDimension': MAX_IMAGE_DIMENSION,
+                            'mimeTypes': list(IMAGE_FORMATS),
+                        }} if image_input else {}),
                         'admission': {'activeRequests': len(admission.active), 'waitingRequests': len(admission.waiting),
                                       'maxConcurrentRequests': admission.concurrency, 'maxWaitingRequests': admission.queue_limit},
                         'limits': {**SETTINGS_MAX, 'contextTokens': min(context, capacity, SETTINGS_MAX['contextTokens']), 'reuseCachedPrefixes': True}}
@@ -193,6 +223,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
         request_started = time.monotonic()
         selected_model = model
         adapter_enabled = base_model is not None
+        image = None
         requested = request.headers.get('x-chat-diagnostics') == '1'
         if requested and not diagnostics_enabled:
             return error('Request diagnostics are disabled', 403)
@@ -217,16 +248,23 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 response.headers['X-Chat-Rejection'] = rejection
             return response
 
+        def model_error(text_error):
+            if image is not None:
+                return chat_error('The model could not process the image.', 503, 'image_processing')
+            return chat_error(text_error, 503)
+
         if not request.headers.get('content-type', '').startswith('application/json'):
             return chat_error('JSON required', 415)
         try:
             body = bytearray()
             async for part in request.stream():
-                body.extend(part)
-                if len(body) > MAX_BODY:
+                if len(body) + len(part) > MAX_BODY:
                     return chat_error('Conversation too large', 413)
+                body.extend(part)
             value = json.loads(body)
             messages, maximum, temperature = validate(value)
+            if 'image' in value and not image_input:
+                return chat_error('This model does not accept images.', 400, 'image_unsupported')
             if 'useAdapter' in value:
                 if type(value['useAdapter']) is not bool or base_model is None:
                     raise ValueError('Adapter selection unavailable or invalid')
@@ -254,6 +292,8 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 raise ValueError('Context budget must leave room for input')
         except (ValueError, UnicodeError):
             return chat_error('Invalid chat request', 400)
+        if 'image' in value and adapter_enabled:
+            return chat_error('Turn off the BF16 adapter to attach an image.', 400, 'image_adapter')
         deadline = time.monotonic() + settings['timeoutSeconds']
         now = time.monotonic()
         recent[:] = [stamp for stamp in recent if stamp > now - 60]
@@ -290,13 +330,23 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 admission.release(ticket)
                 raise
         try:
+            if 'image' in value:
+                try:
+                    image = await asyncio.to_thread(validate_image, value['image'])
+                except (ValueError, OSError, SyntaxError, OverflowError, struct.error, Image.DecompressionBombError):
+                    admission.release(ticket)
+                    return chat_error('Invalid image attachment.', 400, 'image_invalid')
+                messages[-1]['content'] = [
+                    {'type': 'text', 'text': messages[-1]['content']},
+                    {'type': 'image_url', 'image_url': {'url': image}},
+                ]
             capacity = await asyncio.wait_for(serving_context(selected_model), timeout=max(0.001, deadline - time.monotonic()))
             if settings['contextTokens'] > capacity:
                 admission.release(ticket)
                 return chat_error('Context budget exceeds the running model capacity', 400)
         except (httpx.HTTPError, ValueError, TypeError, AttributeError, TimeoutError):
             admission.release(ticket)
-            return chat_error('Serving context unavailable', 503)
+            return model_error('Serving context unavailable')
         except BaseException:
             admission.release(ticket)
             raise
@@ -314,12 +364,12 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 }), timeout=max(0.001, deadline - time.monotonic()))
                 if counts.status_code != 200:
                     admission.release(ticket)
-                    return chat_error('Model tokenizer unavailable', 503)
+                    return model_error('Model tokenizer unavailable')
                 payload = counts.json()
                 count = payload.get('count') if isinstance(payload, dict) else None
                 if type(count) is not int or count < 0:
                     admission.release(ticket)
-                    return chat_error('Invalid tokenizer response', 503)
+                    return model_error('Invalid tokenizer response')
                 if diagnostic is not None:
                     if diagnostic['inputTokensBefore'] is None:
                         diagnostic['inputTokensBefore'] = count
@@ -347,14 +397,14 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             if response.status_code != 200:
                 await response.aclose()
                 admission.release(ticket)
-                return chat_error('Model unavailable', 503)
+                return model_error('Model unavailable')
         except (httpx.HTTPError, ValueError, TypeError, TimeoutError):
             try:
                 if response is not None:
                     await response.aclose()
             finally:
                 admission.release(ticket)
-            return chat_error('Model unavailable', 503)
+            return model_error('Model unavailable')
         except BaseException:
             try:
                 if response is not None:
@@ -377,18 +427,22 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             try:
                 async with asyncio.timeout(max(0.001, deadline - time.monotonic())):
                     async for part in response.aiter_bytes():
-                        if diagnostic is None:
+                        if diagnostic is None and image is None:
                             yield part
                             continue
-                        # Observe complete SSE events, not transport chunks. Preserve their bytes.
+                        # Inspect complete events so model errors cannot echo image data.
                         buffer += part
                         while (boundary := re.search(rb'\r?\n\r?\n', buffer)) is not None:
                             frame, buffer = buffer[:boundary.end()], buffer[boundary.end():]
                             data = b'\n'.join(line[5:].lstrip(b' ') for line in frame.splitlines() if line.startswith(b'data:'))
-                            if data == b'[DONE]' and not timing_sent:
+                            if image is not None and data and data != b'[DONE]':
+                                item = json.loads(data)
+                                if not isinstance(item, dict) or 'error' in item:
+                                    raise ValueError('Invalid model event')
+                            if diagnostic is not None and data == b'[DONE]' and not timing_sent:
                                 yield timing_event()
                                 timing_sent = True
-                            elif timing['upstreamFirstContentMs'] is None:
+                            elif diagnostic is not None and timing['upstreamFirstContentMs'] is None:
                                 try:
                                     item = json.loads(data)
                                     content = item.get('choices', [{}])[0].get('delta', {}).get('content')
@@ -402,6 +456,8 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                         if len(buffer) > 1_048_576:
                             raise ValueError('Upstream SSE event too large')
                     if buffer:
+                        if image is not None:
+                            raise ValueError('Incomplete model event')
                         yield buffer + b'\n\n'
                     if diagnostic is not None and not timing_sent:
                         yield timing_event()
@@ -417,6 +473,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
 
         return StreamingResponse(generate(), media_type='text/event-stream', headers={
             'X-Context-Trimmed': str(trimmed), 'X-Accel-Buffering': 'no',
+            **({'X-Chat-Image-Accepted': 'true'} if image is not None else {}),
             **diagnostic_headers(),
         })
 
@@ -430,6 +487,8 @@ if __name__ == '__main__':
                      base_model=(os.environ.get('VLLM_BASE_MODEL_NAME') or os.environ.get('SERVED_MODEL_NAME', 'qwen') + '-base') if os.environ.get('LORA_ADAPTER_PATH') else None,
                      upstream='http://127.0.0.1:' + os.environ.get('VLLM_PORT', '8000'),
                      context=int(os.environ.get('MAX_MODEL_LEN', '40960')),
-                     concurrency=min(2, int(os.environ.get('MAX_NUM_SEQS', '2'))))
+                     concurrency=min(2, int(os.environ.get('MAX_NUM_SEQS', '2'))),
+                     model_profile=os.environ.get('MODEL_PROFILE', '4bit'),
+                     image_input_enabled=os.environ.get('CHAT_IMAGE_INPUT_ENABLED') == 'true')
     uvicorn.run(app, host=os.environ.get('CHAT_HOST', '127.0.0.1'),
                 port=int(os.environ.get('CHAT_PORT', '8001')), access_log=False)

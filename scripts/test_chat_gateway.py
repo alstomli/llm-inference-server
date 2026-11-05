@@ -1,11 +1,14 @@
 """Exercise the real gateway with a controlled vLLM-compatible upstream."""
 import asyncio
+import base64
 import importlib.util
+from io import BytesIO
 import json
 import re
 from pathlib import Path
 import unittest
 import httpx
+from PIL import Image
 
 spec = importlib.util.spec_from_file_location('gateway', Path(__file__).with_name('chat-gateway.py'))
 gateway = importlib.util.module_from_spec(spec)
@@ -15,11 +18,20 @@ AUTH = {'Authorization': 'Bearer ' + TOKEN}
 SSE = b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: [DONE]\n\n'
 
 
+def image_uri(image_format='PNG', size=(32, 32), **save_options):
+    buffer = BytesIO()
+    with Image.new('RGB', size, color='red') as image:
+        image.save(buffer, format=image_format, **save_options)
+    return 'data:image/' + image_format.lower() + ';base64,' + base64.b64encode(buffer.getvalue()).decode('ascii')
+
+
 class GatewayTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.forwarded = []
         self.tokenizer_requests = 0
         self.tokenizer_models = []
+        self.tokenized = []
+        self.model_requests = 0
         self.tokenizer_failure = False
         self.tokenizer_invalid = False
         self.model_failure = False
@@ -75,12 +87,14 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             if request.url.path == '/health':
                 return httpx.Response(503 if self.model_failure else 200)
             if request.url.path == '/v1/models':
+                self.model_requests += 1
                 return httpx.Response(200, json={'data': self.model_cards if self.model_cards is not None
                                                  else [{'id': 'qwen', 'max_model_len': self.model_context}]})
             body = json.loads(request.content)
             if request.url.path == '/tokenize':
                 self.tokenizer_requests += 1
                 self.tokenizer_models.append(body['model'])
+                self.tokenized.append(body)
                 await asyncio.sleep(self.tokenize_delay)
                 if self.tokenizer_failure:
                     return httpx.Response(503)
@@ -94,6 +108,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             if self.model_failure:
                 return httpx.Response(500, text='internal details must not be exposed')
             prompt = body['messages'][-1]['content']
+            if isinstance(prompt, list):
+                prompt = prompt[0]['text']
             stream = ControlledStream(prompt) if prompt in self.blocked_prompts else FragmentedStream() if self.stream_parts is not None else BlockedStream() if self.block or self.reply_delay else httpx.ByteStream(SSE)
             return httpx.Response(200, stream=stream, headers={'content-type': 'text/event-stream'})
 
@@ -216,12 +232,100 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.client.get(path, headers=AUTH)).status_code, 404)
         self.assertEqual((await self.client.get('/health', headers=AUTH)).status_code, 200)
 
-    async def enable_adapter_toggle(self):
+    async def configure(self, **options):
         await self.client.aclose()
         await self.app.state.client.aclose()
-        self.model_cards = [{'id': 'qwen-base', 'max_model_len': 40960}, {'id': 'qwen', 'parent': 'qwen-base'}]
-        self.app = gateway.create_app(TOKEN, transport=self.transport, model='qwen', base_model='qwen-base', diagnostics_enabled=True)
+        self.app = gateway.create_app(TOKEN, transport=self.transport, diagnostics_enabled=True, **options)
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url='http://test')
+
+    async def enable_adapter_toggle(self, **options):
+        self.model_cards = [{'id': 'qwen-base', 'max_model_len': 40960}, {'id': 'qwen', 'parent': 'qwen-base'}]
+        await self.configure(base_model='qwen-base', **options)
+
+    async def test_image_input_requires_bf16_and_opt_in(self):
+        image = image_uri()
+        for profile, enabled in [('4bit', False), ('4bit', True), ('bf16', False), ('bf16', True)]:
+            await self.configure(model_profile=profile, image_input_enabled=enabled)
+            health = (await self.client.get('/health', headers=AUTH)).json()
+            if profile == 'bf16' and enabled:
+                self.assertEqual(health['imageInputVersion'], 1)
+                self.assertEqual(health['imageInput'], {
+                    'maxBytes': 262144, 'maxDimension': 2048,
+                    'mimeTypes': ['image/jpeg', 'image/png', 'image/webp'],
+                })
+                response = await self.send(image=image)
+                self.assertEqual(response.headers.get('X-Chat-Image-Accepted'), 'true')
+                self.assertEqual(response.content, SSE)
+            else:
+                self.assertNotIn('imageInput', health)
+                self.assertNotIn('imageInputVersion', health)
+                response = await self.send(image=image)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.headers.get('X-Chat-Rejection'), 'image_unsupported')
+        self.assertEqual(self.tokenizer_requests, 1)
+        self.assertNotIn('X-Chat-Image-Accepted', (await self.send()).headers)
+
+    async def test_image_validation_rejects_invalid_files_before_upstream(self):
+        await self.configure(model_profile='bf16', image_input_enabled=True)
+        valid = image_uri()
+        mime, encoded = valid.split(',', 1)
+        oversized = base64.b64encode(b'x' * (gateway.MAX_IMAGE_BYTES + 1)).decode('ascii')
+        for image in (None, [valid], 'https://example.com/picture.png', valid.replace('image/png', 'image/jpeg'),
+                      mime + ',Zm9v', mime + ',' + encoded[:40], mime + ', AB==', mime + ',' + oversized,
+                      image_uri(size=(2049, 1)), image_uri(size=(1, 2049))):
+            response = await self.send(image=image)
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.headers.get('X-Chat-Rejection'), 'image_invalid')
+        response = await self.send(image=valid, settings={**gateway.SETTINGS_DEFAULT, 'requestBytes': 1024},
+                                   messages=[{'role': 'user', 'content': 'x' * 1000}])
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(self.model_requests, 0)
+        self.assertEqual(self.tokenizer_requests, 0)
+        self.assertFalse(self.app.state.admission.active)
+
+    async def test_image_uses_base_alias_and_survives_tokenizer_trimming(self):
+        await self.enable_adapter_toggle(model_profile='bf16', image_input_enabled=True)
+        for flags in ({}, {'useAdapter': True}):
+            response = await self.send(image='invalid', **flags)
+            self.assertEqual(response.headers.get('X-Chat-Rejection'), 'image_adapter')
+        self.assertEqual(self.model_requests, 0)
+        messages = [{'role': 'user', 'content': 'old'}, {'role': 'assistant', 'content': 'old answer'},
+                    {'role': 'user', 'content': 'What is pictured?'}]
+        for format in ('JPEG', 'PNG', 'WEBP'):
+            image = image_uri(format)
+            response = await self.diagnostic_send(messages, image=image, useAdapter=False,
+                                                  settings={**gateway.SETTINGS_DEFAULT, 'reuseCachedPrefixes': False})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers.get('X-Chat-Image-Accepted'), 'true')
+            self.assertEqual(response.headers.get('X-Chat-Adapter-Enabled'), 'false')
+            self.assertEqual(self.tokenizer_models[-2:], ['qwen-base', 'qwen-base'])
+            parts = [{'type': 'text', 'text': 'What is pictured?'}, {'type': 'image_url', 'image_url': {'url': image}}]
+            self.assertEqual(self.tokenized[-2]['messages'][-1]['content'], parts)
+            self.assertEqual(self.tokenized[-2]['messages'][1:-1], messages[:-1])
+            self.assertEqual(self.forwarded[-1]['model'], 'qwen-base')
+            self.assertEqual(self.forwarded[-1]['messages'], self.tokenized[-1]['messages'])
+            self.assertEqual(self.forwarded[-1]['messages'][-1]['content'], parts)
+            self.assertIn('cache_salt', self.forwarded[-1])
+            diagnostic = json.loads(response.headers['X-Chat-Diagnostics'])
+            self.assertEqual(diagnostic['gatewayTrimmedMessages'], 2)
+            self.assertEqual((diagnostic['inputTokensBefore'], diagnostic['inputTokensAfter']), (50000, 150))
+            self.assertNotIn(image, response.headers['X-Chat-Diagnostics'])
+        self.assertEqual((await self.send()).headers.get('X-Chat-Adapter-Enabled'), 'true')
+
+    async def test_image_upstream_errors_are_sanitized_and_release_admission(self):
+        await self.configure(model_profile='bf16', image_input_enabled=True)
+        image = image_uri()
+        self.tokenizer_failure = True
+        response = await self.send(image=image)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.headers.get('X-Chat-Rejection'), 'image_processing')
+        self.assertNotIn('X-Chat-Image-Accepted', response.headers)
+        self.tokenizer_failure = False
+        self.stream_parts = [('data: ' + json.dumps({'error': {'message': image}}) + '\n\n').encode(), b'data: [DONE]\n\n']
+        response = await self.send(image=image)
+        self.assertNotIn(image, response.text)
+        self.assertIn('interrupted', response.text)
+        self.assertFalse(self.app.state.admission.active)
 
     async def test_adapter_toggle_routes_tokenizer_generation_and_diagnostics_per_request(self):
         await self.enable_adapter_toggle()
