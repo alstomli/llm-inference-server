@@ -1,4 +1,4 @@
-# QLoRA training on the original BF16 checkpoint
+# LoRA and QLoRA training on the original BF16 checkpoint
 
 `qlora_tune.py` supports a full training run and an explicit `--smoke-test` mode.
 It trains separate language LoRA adapters;
@@ -95,8 +95,19 @@ is no longer a 32-step ceiling. For example:
 
 Both input and answer must fit the limit; examples are rejected rather than
 truncated. Longer sequences, larger batches and larger ranks need more GPU
-memory. The 32 GiB free-memory guard is not a guarantee that those settings fit.
-The cached base is quantized to NF4 with BF16 computation; only adapters train.
+memory. The default `--base-precision nf4` uses QLoRA with BF16 computation.
+Use `--base-precision bf16` to train a fresh LoRA adapter with the frozen,
+unquantized BF16 base. To compare the two modes, pass the same training and
+validation files and settings, and give each run a separate output directory.
+The startup guards require 32 GiB free for NF4 or 64 GiB for BF16. Actual
+memory use depends on the model, data and training settings.
+
+```bash
+/opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_tune.py \
+  --base-precision bf16 \
+  --eval-data /workspace/qlora-smoke/source/training/examples/validation.json \
+  --output /workspace/qlora-smoke/runs/bf16-lora-comparison
+```
 
 ## Validation, checkpoints and output
 

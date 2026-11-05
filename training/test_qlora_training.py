@@ -103,6 +103,11 @@ class TrainingTests(unittest.TestCase):
                 check_run_directory(args, contract)
             args.resume_from_checkpoint = checkpoint
             self.assertEqual(check_run_directory(args, contract)['status'], 'interrupted')
+            legacy_contract = {key: value for key, value in contract.items() if key != 'base_precision'}
+            write_json(output / 'run.json', {'status': 'interrupted', 'contract': legacy_contract})
+            self.assertEqual(check_run_directory(args, contract)['status'], 'interrupted')
+            with self.assertRaisesRegex(ValueError, 'do not match'):
+                check_run_directory(args, dict(contract, base_precision='bf16'))
             changed = dict(contract, data_sha256='changed')
             with self.assertRaisesRegex(ValueError, 'do not match'):
                 check_run_directory(args, changed)
