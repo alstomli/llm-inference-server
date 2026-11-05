@@ -5,7 +5,7 @@ import json
 import math
 from pathlib import Path
 
-from qlora_tune import checkpoint_identity, read_examples, tokenize_examples, write_json
+from qlora_tune import MIN_FREE_VRAM_GIB, checkpoint_identity, read_examples, tokenize_examples, write_json
 
 
 def main():
@@ -19,21 +19,19 @@ def main():
         raise ValueError('Expected a completed smoke run from this exact source checkpoint')
     from unsloth import FastModel
     import torch
-    from transformers import AutoTokenizer, BitsAndBytesConfig
+    from transformers import AutoTokenizer
     from peft import PeftModel
     from safetensors.torch import load_file
-    if torch.cuda.mem_get_info()[0] < 32 * 2**30:
+    if torch.cuda.mem_get_info()[0] < MIN_FREE_VRAM_GIB * 2**30:
         raise RuntimeError('Release the serving allocation before reloading the training model')
     tokenizer = AutoTokenizer.from_pretrained(str(args.run / 'tokenizer'), local_files_only=True)
     example = read_examples(Path(__file__).parent / 'examples/smoke.jsonl')[0]
     rows, counts = tokenize_examples(tokenizer, [example], report['max_length'])
-    quantization = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type='nf4',
-                                     bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)
     base, _ = FastModel.from_pretrained(
         model_name=str(args.bf16_root / 'model'), use_exact_model_name=True,
         local_files_only=True, trust_remote_code=False, dtype=torch.bfloat16,
-        load_in_4bit=True, full_finetuning=False, fast_inference=False,
-        quantization_config=quantization, max_seq_length=report['max_length'])
+        load_in_4bit=False, load_in_16bit=True, full_finetuning=False,
+        fast_inference=False, max_seq_length=report['max_length'])
     model = PeftModel.from_pretrained(base, str(args.run / 'adapter'), is_trainable=False,
                                      local_files_only=True)
     if model.active_adapter != 'default':

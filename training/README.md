@@ -1,4 +1,4 @@
-# LoRA and QLoRA training on the original BF16 checkpoint
+# LoRA training on the original BF16 checkpoint
 
 `qlora_tune.py` supports a full training run and an explicit `--smoke-test` mode.
 It trains separate language LoRA adapters;
@@ -95,16 +95,13 @@ is no longer a 32-step ceiling. For example:
 
 Both input and answer must fit the limit; examples are rejected rather than
 truncated. Longer sequences, larger batches and larger ranks need more GPU
-memory. The default `--base-precision nf4` uses QLoRA with BF16 computation.
-Use `--base-precision bf16` to train a fresh LoRA adapter with the frozen,
-unquantized BF16 base. To compare the two modes, pass the same training and
-validation files and settings, and give each run a separate output directory.
-The startup guards require 32 GiB free for NF4 or 64 GiB for BF16. Actual
-memory use depends on the model, data and training settings.
+memory. The runner loads the frozen base in BF16 and requires at least 64 GiB
+free at startup. Actual memory use depends on the data and training settings.
+To compare with a previous QLoRA run, pass the same training and validation files
+and settings, and start a fresh adapter in a separate output directory.
 
 ```bash
 /opt/qlora/venv/bin/python /workspace/qlora-smoke/source/training/qlora_tune.py \
-  --base-precision bf16 \
   --eval-data /workspace/qlora-smoke/source/training/examples/validation.json \
   --output /workspace/qlora-smoke/runs/bf16-lora-comparison
 ```
@@ -160,16 +157,14 @@ quality improvement. The eight hand-written inference explanations in
 `examples/smoke.jsonl` are disposable test data. Choose a behavior and separate
 training/validation/test examples before a useful training run.
 
-The first real run and fresh-process reload succeeded. See
+The historical QLoRA run and fresh-process reload succeeded. See
 [SMOKE_RESULTS.md](SMOKE_RESULTS.md) for measured memory, timings and limits.
 
 ## What it does
 
 - Reads the cached `Qwen/Qwen3.8-27B` BF16 checkpoint at the deployment's exact
   revision `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`.
-- Quantizes supported linear weights to NF4 during loading, with double
-  quantization and BF16 computation. It does not use the AWQ serving artifact or
-  download an interchangeable base checkpoint.
+- Loads the pinned base weights in BF16 for training and adapter verification.
 - Trains rank-8 language adapters only. Source weights and vision layers stay
   frozen. Prompts and earlier conversation replies have labels masked to -100;
   only the selected completion and its end token contribute to loss.
@@ -179,8 +174,8 @@ The first real run and fresh-process reload succeeded. See
 - Saves an adapter, tokenizer, exact base identity, data hash, package versions,
   loss history and PyTorch peak allocated/reserved GPU memory under a new run
   directory. These GPU figures do not include all driver/process overhead.
-- Checks actual 4bit modules, BF16 computation, finite loss and a changed adapter
-  weight. `verify_adapter.py` checks a fresh-process reload; held-out quality
+- Checks the loaded base is BF16, the loss is finite and an adapter weight
+  changed. `verify_adapter.py` checks a fresh-process reload; held-out quality
   evaluation remains necessary before any serving deployment.
 
 ## Prepare on the existing BF16 Pod
@@ -234,7 +229,7 @@ bash /workspace/qlora-smoke/source/training/setup-qlora.sh
 bash /workspace/qlora-smoke/source/training/run-smoke.sh
 ```
 
-The smoke wrapper refuses to start if less than 32 GiB of GPU memory is free. Its
+The smoke wrapper refuses to start if less than 64 GiB of GPU memory is free. Its
 settings are batch size 1, 2,048 maximum tokens, rank 8, and eight optimizer
 steps. This is a free-memory guard, not a promise that every dataset fits.
 
@@ -272,6 +267,5 @@ epoch/step evaluation, checkpoint interruption/resume, retention and adapter
 export. It does not load Qwen or establish GPU/Unsloth training performance.
 
 Sources: [Unsloth Qwen3.8 training guide](https://unsloth.ai/docs/models/qwen3.8/train),
-[PEFT quantization](https://huggingface.co/docs/peft/developer_guides/quantization),
 [Trainer](https://huggingface.co/docs/transformers/en/main_classes/trainer),
 [Unsloth checkpoint recovery](https://unsloth.ai/docs/basics/finetuning-from-last-checkpoint).

@@ -18,6 +18,7 @@ os.environ.setdefault('UNSLOTH_DISABLE_STATISTICS', '1')
 
 BASE_ID = 'Qwen/Qwen3.8-27B'
 BASE_REVISION = '1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0'
+MIN_FREE_VRAM_GIB = 64
 SYSTEM = 'You are Qwen, a helpful personal assistant. Answer clearly and directly. Use Markdown when helpful.'
 SPECIAL_MARKERS = ('<|im_start|>', '<|im_end|>', '<think>', '</think>')
 
@@ -155,8 +156,6 @@ def write_json(path, value):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bf16-root', type=Path, default=Path('/workspace/qwen-bf16'))
-    parser.add_argument('--base-precision', choices=('nf4', 'bf16'), default='nf4',
-                        help='Frozen base precision: nf4 for QLoRA, bf16 for LoRA')
     parser.add_argument('--data', type=Path, default=Path(__file__).parent / 'examples/train.json')
     parser.add_argument('--eval-data', type=Path, help='Separate validation JSON/JSONL; otherwise split --data')
     parser.add_argument('--validation-fraction', type=float, default=0.1)
@@ -212,7 +211,7 @@ def run_contract(args, identity, training, evaluation):
     """Fields that must match when continuing an interrupted run."""
     return {
         'base': identity, 'bf16_root': str(args.bf16_root.resolve()),
-        'base_precision': args.base_precision,
+        'base_precision': 'bf16',
         'data_sha256': hashlib.sha256(args.data.read_bytes()).hexdigest(),
         'eval_data_sha256': hashlib.sha256(args.eval_data.read_bytes()).hexdigest() if args.eval_data else None,
         'training_ids': [e['id'] for e in training], 'validation_ids': [e['id'] for e in evaluation],
@@ -236,9 +235,7 @@ def check_run_directory(args, contract):
         if not (checkpoint / name).is_file():
             raise ValueError(f'Incomplete resume checkpoint: missing {name}')
     previous = json.loads((args.output / 'run.json').read_text(encoding='utf-8'))
-    saved_contract = dict(previous.get('contract') or {})
-    saved_contract.setdefault('base_precision', 'nf4')  # Runs before the flag used NF4.
-    if saved_contract != contract:
+    if previous.get('contract') != contract:
         raise ValueError('Resume configuration/data do not match the saved run; use the original arguments and files')
     if previous.get('status') == 'completed':
         raise ValueError('This run is already completed; start a new run instead')
@@ -275,7 +272,6 @@ def trainer_settings(args, training_count):
 
 def main():
     args = parse_args()
-    quantize_base = args.base_precision == 'nf4'
     environment = Path(os.environ.get('QLORA_ENV_ROOT', '/opt/qlora'))
     for name, value in {'HF_HOME': str(environment / 'hf-cache'),
                         'HF_HUB_DISABLE_IMPLICIT_TOKEN': '1',
@@ -298,10 +294,9 @@ def main():
         if torch.cuda.device_count() != 1 or int(os.environ.get('WORLD_SIZE', '1')) != 1:
             raise RuntimeError('This runner supports one visible GPU and one process; select one GPU with CUDA_VISIBLE_DEVICES')
         free, total = torch.cuda.mem_get_info()
-        minimum_free_gib = 32 if quantize_base else 64
-        if free < minimum_free_gib * 2**30:
-            raise RuntimeError(f'Only {free / 2**30:.1f} GiB is free; {args.base_precision} needs '
-                               f'at least {minimum_free_gib} GiB to start. Use the training-only Pod entrypoint.')
+        if free < MIN_FREE_VRAM_GIB * 2**30:
+            raise RuntimeError(f'Only {free / 2**30:.1f} GiB is free; BF16 LoRA needs at least '
+                               f'{MIN_FREE_VRAM_GIB} GiB to start. Use the training-only Pod entrypoint.')
         # Patch training libraries before importing Transformers model classes.
         from unsloth import FastModel
     from transformers import AutoTokenizer
@@ -309,8 +304,7 @@ def main():
                                               trust_remote_code=False)
     rows, counts = tokenize_examples(tokenizer, training, args.max_length)
     eval_rows, eval_counts = tokenize_examples(tokenizer, evaluation, args.max_length)
-    purpose = 'qlora-finetuning' if quantize_base else 'lora-finetuning'
-    report = {'schema_version': 2, 'purpose': 'pipeline-smoke-test-only' if args.smoke_test else purpose,
+    report = {'schema_version': 2, 'purpose': 'pipeline-smoke-test-only' if args.smoke_test else 'lora-finetuning',
               'base': identity, 'contract': contract, 'data_sha256': contract['data_sha256'],
               'examples': counts, 'validation_examples': eval_counts,
               'training_examples': len(rows), 'validation_example_count': len(eval_rows),
@@ -323,7 +317,7 @@ def main():
         print(json.dumps(report, indent=2))
         return
 
-    from transformers import BitsAndBytesConfig, Trainer, TrainingArguments, set_seed
+    from transformers import Trainer, TrainingArguments, set_seed
     if not args.resume_from_checkpoint:
         args.output.mkdir(parents=True)
         write_json(args.output / 'train.json', training)
@@ -334,8 +328,7 @@ def main():
                                          'at': datetime.now(timezone.utc).isoformat()})
     report.update({'status': 'started', 'gpu': torch.cuda.get_device_name(),
                    'total_vram_gib': total / 2**30, 'initial_free_vram_gib': free / 2**30,
-                   'quantization': {'storage': args.base_precision, 'compute': 'bfloat16',
-                                    'double_quantization': quantize_base},
+                   'quantization': {'storage': 'bf16', 'compute': 'bfloat16', 'double_quantization': False},
                    'lora': {'rank': args.rank, 'alpha': args.alpha, 'dropout': args.dropout},
                    'packages': {name: importlib.metadata.version(name) for name in
                                 ['unsloth', 'unsloth-zoo', 'torch', 'transformers', 'peft', 'bitsandbytes']}})
@@ -343,25 +336,14 @@ def main():
     set_seed(args.seed)
     torch.cuda.reset_peak_memory_stats()
     try:
-        load_options = {'load_in_4bit': quantize_base}
-        if quantize_base:
-            load_options['quantization_config'] = BitsAndBytesConfig(
-                load_in_4bit=True, bnb_4bit_quant_type='nf4',
-                bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)
-        else:
-            load_options['load_in_16bit'] = True
         model, _ = FastModel.from_pretrained(
             model_name=str(args.bf16_root / 'model'), use_exact_model_name=True,
             local_files_only=True, trust_remote_code=False, dtype=torch.bfloat16,
-            full_finetuning=False, fast_inference=False, max_seq_length=args.max_length,
-            **load_options)
+            load_in_4bit=False, load_in_16bit=True, full_finetuning=False,
+            fast_inference=False, max_seq_length=args.max_length)
         import bitsandbytes as bnb
-        quantized = [m for m in model.modules() if isinstance(m, bnb.nn.Linear4bit)]
-        if quantize_base:
-            if not quantized or not all(m.compute_dtype == torch.bfloat16 for m in quantized):
-                raise RuntimeError('Expected actual 4bit linear modules with BF16 computation')
-        elif (quantized or getattr(model, 'is_loaded_in_8bit', False)
-              or model.get_input_embeddings().weight.dtype != torch.bfloat16):
+        if (any(isinstance(m, (bnb.nn.Linear4bit, bnb.nn.Linear8bitLt)) for m in model.modules())
+                or model.get_input_embeddings().weight.dtype != torch.bfloat16):
             raise RuntimeError('Expected an unquantized BF16 base for LoRA')
         model = FastModel.get_peft_model(
             model, finetune_vision_layers=False, finetune_language_layers=True,
@@ -410,7 +392,7 @@ def main():
                        'training_loss': result.training_loss, 'metrics': result.metrics,
                        'loss_history': trainer.state.log_history,
                        'trainable_parameters': sum(p.numel() for _, p in trainable),
-                       'quantized_linear_modules': len(quantized), 'adapter_sample': sample_name,
+                       'quantized_linear_modules': 0, 'adapter_sample': sample_name,
                        'adapter_sample_changed': True,
                        'peak_allocated_gib': torch.cuda.max_memory_allocated() / 2**30,
                        'peak_reserved_gib': torch.cuda.max_memory_reserved() / 2**30})
