@@ -100,6 +100,34 @@ continue requesting the adapter alias.
 Weight loading remains subject to the existing global-volume throughput. This
 change does not copy the BF16 model to the container disk or speed up that load.
 
+## Choose the base or adapter per request
+
+With the updated gateway and the existing LoRA environment settings, authenticated
+`/health` advertises `adapterToggleVersion: 1` and `adapterToggleAvailable: true`
+only when the adapter's registered parent matches the configured base alias and
+both capacities can be verified. Gateways without a configured adapter advertise
+version 0 and do not accept this option. No additional Pod environment variable
+is needed to enable switching.
+
+Chat requests may include `"useAdapter": true` (adapter) or `"useAdapter": false`
+(base). Omitting it preserves the existing default adapter route. Values must
+be JSON booleans; a browser-supplied model alias never selects a destination.
+The gateway chooses only its configured adapter/base pair and uses that same
+alias for capacity checks, tokenization, generation and diagnostic metadata.
+Successful streams confirm the selection in `X-Chat-Adapter-Enabled: true|false`.
+Both modes share the same admission queue, timeout and rate limit.
+
+Deploy the companion frontend to expose its BF16-only **Use trained adapter**
+switch. It saves the preference per conversation and the mode per new answer.
+The mode changes between requests without restarting the engine or reloading
+weights. Installing the gateway update still uses the normal image rollout.
+An older frontend keeps using the existing default adapter route; the new
+frontend hides the switch when an older gateway does not advertise support.
+
+The local fixture can exercise the feature without a GPU by setting
+`CHAT_FIXTURE_ADAPTER=true` for `scripts/chat_test_fixture.py`. This fixture is
+test-only and must not be used as the serving entrypoint.
+
 ## Rollback
 
 Remove **both** `LORA_ADAPTER_PATH` and `VLLM_BASE_MODEL_NAME`, then restart with

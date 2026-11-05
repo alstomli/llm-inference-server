@@ -13,7 +13,9 @@ TOKEN = 'integration-test-token-' + 'x' * 40
 
 class Model(BaseHTTPRequestHandler):
     def do_GET(self):
-        data = json.dumps({'data': [{'id': 'qwen', 'max_model_len': 40960}]}).encode() if self.path == '/v1/models' else b''
+        cards = ([{'id': 'qwen-bf16-base', 'max_model_len': 40960}, {'id': 'qwen-bf16', 'parent': 'qwen-bf16-base'}]
+                 if os.environ.get('CHAT_FIXTURE_ADAPTER') == 'true' else [{'id': 'qwen', 'max_model_len': 40960}])
+        data = json.dumps({'data': cards}).encode() if self.path == '/v1/models' else b''
         self.send_response(200); self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
 
     def do_POST(self):
@@ -25,7 +27,9 @@ class Model(BaseHTTPRequestHandler):
         self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.end_headers()
         slow = body['messages'][-1]['content'] == 'slow'
         try:
-            for word in (['sample '] * 100 if slow else ['Hello ', 'from ', 'the integration fixture.']):
+            words = ([f"Fixture response using {body['model']}. "] * 4
+                     if os.environ.get('CHAT_FIXTURE_ADAPTER') == 'true' else ['Hello ', 'from ', 'the integration fixture.'])
+            for word in (['sample '] * 100 if slow else words):
                 data = {'choices': [{'delta': {'content': word}}]}
                 self.wfile.write(('data: ' + json.dumps(data) + '\n\n').encode()); self.wfile.flush(); time.sleep(0.1)
             reason = 'length' if body['messages'][-1]['content'] == 'length-test' else 'stop'
@@ -47,4 +51,7 @@ if __name__ == '__main__':
     threading.Thread(target=server.serve_forever, daemon=True).start()
     spec = importlib.util.spec_from_file_location('gateway', Path(__file__).with_name('chat-gateway.py'))
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-    uvicorn.run(module.create_app(TOKEN, upstream=f'http://127.0.0.1:{model_port}'), host='127.0.0.1' if os.environ.get('CHAT_TEST_FIXTURE_PYTHON') else '0.0.0.0', port=int(os.environ.get('CHAT_FIXTURE_PORT', '8001')), access_log=False, log_level='warning')
+    adapter = os.environ.get('CHAT_FIXTURE_ADAPTER') == 'true'
+    uvicorn.run(module.create_app(TOKEN, upstream=f'http://127.0.0.1:{model_port}',
+        model='qwen-bf16' if adapter else 'qwen', base_model='qwen-bf16-base' if adapter else None),
+        host='127.0.0.1' if os.environ.get('CHAT_TEST_FIXTURE_PYTHON') else '0.0.0.0', port=int(os.environ.get('CHAT_FIXTURE_PORT', '8001')), access_log=False, log_level='warning')

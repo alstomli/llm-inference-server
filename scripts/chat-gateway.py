@@ -112,7 +112,9 @@ def validate(value):
     return cleaned, maximum, temperature
 
 
-def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None, diagnostics_enabled=None, concurrency=2):
+def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None, diagnostics_enabled=None, concurrency=2, base_model=None):
+    if base_model is not None and (not isinstance(base_model, str) or not base_model or base_model == model):
+        raise ValueError('Base and adapter aliases must be distinct')
     if not isinstance(token, str) or len(token) < 32:
         raise ValueError('A chat token of at least 32 characters is required')
     if diagnostics_enabled is None:
@@ -147,12 +149,16 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
 
-    async def serving_context():
+    async def serving_context(target_model=model):
         # Read vLLM's actual serving capacity rather than trusting a browser value.
         response = await client.get('/v1/models', timeout=5)
         response.raise_for_status()
         models = response.json().get('data', [])
-        selected = next((item for item in models if item.get('id') == model), {})
+        if base_model is not None:
+            adapter = next((item for item in models if item.get('id') == model), {})
+            if adapter.get('parent') != base_model:
+                raise ValueError('Adapter lineage unavailable')
+        selected = next((item for item in models if item.get('id') == target_model), {})
         capacity = selected.get('max_model_len')
         # vLLM 0.32 lists LoRA cards without max_model_len; inherit capacity only
         # from that card's explicitly named base, never an arbitrary model.
@@ -169,7 +175,11 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             response = await client.get('/health', timeout=5)
             if response.status_code == 200:
                 capacity = await serving_context()
+                if base_model is not None:
+                    capacity = min(capacity, await serving_context(base_model))
                 return {'ready': True, 'model': model, 'settingsVersion': 1,
+                        'adapterToggleVersion': 1 if base_model is not None else 0,
+                        'adapterToggleAvailable': base_model is not None,
                         'diagnosticsVersion': 1 if diagnostics_enabled else 0,
                         'admission': {'activeRequests': len(admission.active), 'waitingRequests': len(admission.waiting),
                                       'maxConcurrentRequests': admission.concurrency, 'maxWaitingRequests': admission.queue_limit},
@@ -181,6 +191,8 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
     @app.post('/v1/chat/completions')
     async def chat(request: Request):
         request_started = time.monotonic()
+        selected_model = model
+        adapter_enabled = base_model is not None
         requested = request.headers.get('x-chat-diagnostics') == '1'
         if requested and not diagnostics_enabled:
             return error('Request diagnostics are disabled', 403)
@@ -193,7 +205,10 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
         } if requested else None
 
         def diagnostic_headers():
-            return {'X-Chat-Diagnostics': json.dumps(diagnostic, separators=(',', ':'))} if diagnostic is not None else {}
+            headers = {'X-Chat-Diagnostics': json.dumps(diagnostic, separators=(',', ':'))} if diagnostic is not None else {}
+            if base_model is not None:
+                headers['X-Chat-Adapter-Enabled'] = str(adapter_enabled).lower()
+            return headers
 
         def chat_error(message, code, rejection=None):
             response = error(message, code)
@@ -212,6 +227,13 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                     return chat_error('Conversation too large', 413)
             value = json.loads(body)
             messages, maximum, temperature = validate(value)
+            if 'useAdapter' in value:
+                if type(value['useAdapter']) is not bool or base_model is None:
+                    raise ValueError('Adapter selection unavailable or invalid')
+                adapter_enabled = value['useAdapter']
+            selected_model = model if adapter_enabled or base_model is None else base_model
+            if diagnostic is not None:
+                diagnostic['model'] = selected_model
             # The fixed body cap applies before parsing; browser limits may only lower it.
             if 'settings' in value and value['settings'] is None:
                 raise ValueError('Invalid chat settings')
@@ -268,7 +290,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 admission.release(ticket)
                 raise
         try:
-            capacity = await asyncio.wait_for(serving_context(), timeout=max(0.001, deadline - time.monotonic()))
+            capacity = await asyncio.wait_for(serving_context(selected_model), timeout=max(0.001, deadline - time.monotonic()))
             if settings['contextTokens'] > capacity:
                 admission.release(ticket)
                 return chat_error('Context budget exceeds the running model capacity', 400)
@@ -287,7 +309,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             while True:
                 conversation = [{'role': 'system', 'content': SYSTEM}] + messages
                 counts = await asyncio.wait_for(client.post('/tokenize', timeout=settings['timeoutSeconds'], json={
-                    'model': model, 'messages': conversation, 'add_generation_prompt': True,
+                    'model': selected_model, 'messages': conversation, 'add_generation_prompt': True,
                     'chat_template_kwargs': {'enable_thinking': False},
                 }), timeout=max(0.001, deadline - time.monotonic()))
                 if counts.status_code != 200:
@@ -316,7 +338,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             timing['contextFitMs'] = (time.monotonic() - context_started) * 1000
             upstream_started = time.monotonic()
             response = await asyncio.wait_for(client.send(client.build_request('POST', '/v1/chat/completions', timeout=settings['timeoutSeconds'], json={
-                'model': model, 'messages': conversation, 'stream': True,
+                'model': selected_model, 'messages': conversation, 'stream': True,
                 'max_tokens': maximum, 'temperature': temperature,
                 **({'stream_options': {'include_usage': True}} if diagnostic is not None else {}),
                 'chat_template_kwargs': {'enable_thinking': False},
@@ -405,6 +427,7 @@ if __name__ == '__main__':
     import uvicorn
     secret = Path(os.environ.get('CHAT_TOKEN_FILE', '/workspace/chat/chat-token')).read_text().strip()
     app = create_app(secret, model=os.environ.get('SERVED_MODEL_NAME', 'qwen'),
+                     base_model=(os.environ.get('VLLM_BASE_MODEL_NAME') or os.environ.get('SERVED_MODEL_NAME', 'qwen') + '-base') if os.environ.get('LORA_ADAPTER_PATH') else None,
                      upstream='http://127.0.0.1:' + os.environ.get('VLLM_PORT', '8000'),
                      context=int(os.environ.get('MAX_MODEL_LEN', '40960')),
                      concurrency=min(2, int(os.environ.get('MAX_NUM_SEQS', '2'))))

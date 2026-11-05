@@ -216,6 +216,50 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.client.get(path, headers=AUTH)).status_code, 404)
         self.assertEqual((await self.client.get('/health', headers=AUTH)).status_code, 200)
 
+    async def enable_adapter_toggle(self):
+        await self.client.aclose()
+        await self.app.state.client.aclose()
+        self.model_cards = [{'id': 'qwen-base', 'max_model_len': 40960}, {'id': 'qwen', 'parent': 'qwen-base'}]
+        self.app = gateway.create_app(TOKEN, transport=self.transport, model='qwen', base_model='qwen-base', diagnostics_enabled=True)
+        self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url='http://test')
+
+    async def test_adapter_toggle_routes_tokenizer_generation_and_diagnostics_per_request(self):
+        await self.enable_adapter_toggle()
+        health = (await self.client.get('/health', headers=AUTH)).json()
+        self.assertTrue(health['adapterToggleAvailable'])
+        self.assertEqual(health['adapterToggleVersion'], 1)
+        for enabled, alias in [(True, 'qwen'), (False, 'qwen-base'), (True, 'qwen')]:
+            response = await self.diagnostic_send(useAdapter=enabled, model='attacker-model')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers['X-Chat-Adapter-Enabled'], str(enabled).lower())
+            self.assertEqual(self.tokenizer_models[-1], alias)
+            self.assertEqual(self.forwarded[-1]['model'], alias)
+            self.assertEqual(json.loads(response.headers['X-Chat-Diagnostics'])['model'], alias)
+        self.assertEqual((await self.send()).headers['X-Chat-Adapter-Enabled'], 'true')
+
+    async def test_adapter_toggle_rejects_invalid_flags_unsupported_connections_and_missing_lineage(self):
+        self.assertEqual((await self.send(useAdapter=False)).status_code, 400)
+        await self.enable_adapter_toggle()
+        for value in ['false', 0, None, {}, []]:
+            self.assertEqual((await self.send(useAdapter=value)).status_code, 400)
+        self.assertEqual(self.forwarded, [])
+        self.model_cards[1]['parent'] = 'other'
+        self.assertEqual((await self.client.get('/health', headers=AUTH)).status_code, 503)
+        self.assertEqual((await self.send(useAdapter=False)).status_code, 503)
+        self.assertEqual(self.forwarded, [])
+
+    async def test_adapter_variants_share_admission_slots(self):
+        await self.enable_adapter_toggle()
+        self.block = True
+        tasks = [asyncio.create_task(self.send(useAdapter=value)) for value in (True, False)]
+        try:
+            await self.until(lambda: len(self.forwarded) == 2)
+            self.assertEqual(len(self.app.state.admission.active), 2)
+            self.assertEqual({body['model'] for body in self.forwarded}, {'qwen', 'qwen-base'})
+        finally:
+            self.release.set()
+            await asyncio.gather(*tasks)
+
     async def test_adapter_inherits_only_its_named_base_capacity_and_routes_to_adapter(self):
         self.model_cards = [{'id': 'unrelated', 'max_model_len': 40960},
                             {'id': 'qwen-base', 'max_model_len': 8192},
