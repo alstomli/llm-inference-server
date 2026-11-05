@@ -131,6 +131,12 @@ The updated frontend can send a `settings` object with `inputCharacters`, `outpu
 
 Authenticated `/health` includes `settingsVersion: 1` and `limits`. Its context ceiling is the smaller of the gateway configuration, its application ceiling, and the running model's `max_model_len` from private `/v1/models`. The model capacity is rechecked per request. If capacity cannot be verified, readiness/generation fails instead of guessing. Rebuild/restart the gateway and deploy the matching frontend together; older gateways do not support these controls. Live smoke tests on November 1, 2026 verified output truncation at 128 tokens, input rejection with a 5-character limit, old-exchange trimming with a 512-token context budget, and rejection above the deployed 40,960-token ceiling. The published image also passed 10 gateway and 8 startup checks.
 
+### Image attachments on BF16
+
+`CHAT_IMAGE_INPUT_ENABLED=true` opts the BF16 gateway into image input. Its authenticated `/health` advertises the attachment limits when enabled. A chat request can include one top-level `image` field alongside the existing text `messages` array. Use an inline base64 JPEG, PNG, or WebP up to 256 KiB decoded and 2,048 pixels on either edge. The complete JSON still has to fit the request byte limit. The gateway attaches the image to the newest user message for both vLLM tokenization and completion. The reply still streams as text.
+
+When a trained adapter is registered, send `useAdapter: false` for an image request. The gateway uses the BF16 base model for that request. Roll out with the flag enabled on the BF16 test Pod first. Ask a question that depends on a known test image and compare the tokenizer count with the completion's reported prompt tokens for the same prompt. Repeat with a different image and with a text-only request before enabling the flag on the live Pod.
+
 ## Opt-in development token diagnostics
 
 `CHAT_DIAGNOSTICS_ENABLED=true` enables diagnostic capability on the gateway; it defaults off. `/health` reports `diagnosticsVersion: 1` when enabled and `0` otherwise. Authenticated chat callers additionally send `X-Chat-Diagnostics: 1` per request. A disabled gateway rejects that header with 403, and normal requests neither emit diagnostics nor request extra usage. The matching development/Preview frontend must also opt in. Do not enable this by default for a normal production deployment.
