@@ -1,0 +1,10 @@
+# Model-specific recipe, isolated from the inference environment.
+unsloth==2026.11.1
+unsloth-zoo==2026.11.1
+transformers==5.15.1
+trl==0.22.2
+datasets==4.3.0
+bitsandbytes==0.50.2
+peft==0.21.2
+torchao==0.18.0
+xformers==0.0.35

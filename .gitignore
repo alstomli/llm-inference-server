@@ -12,3 +12,7 @@ venv/
 htmlcov/
 .DS_Store
 Thumbs.db
+# Local reviewed datasets and training artifacts are not source code.
+training/examples/train.json
+training/examples/validation.json
+training/runs/

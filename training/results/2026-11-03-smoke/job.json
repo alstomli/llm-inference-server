@@ -1,0 +1,6 @@
+{
+  "exit_code": 0,
+  "elapsed_seconds": 470.5727185590076,
+  "peak_gpu_used_mib": 19431,
+  "output": "/workspace/qlora-smoke/runs/20261104T042842Z"
+}

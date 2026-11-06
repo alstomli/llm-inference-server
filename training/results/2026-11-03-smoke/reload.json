@@ -1,0 +1,20 @@
+{
+  "status": "completed",
+  "check": "fresh-process-reload-only",
+  "base": {
+    "model_id": "Qwen/Qwen3.8-27B",
+    "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "source_dtype": "BF16",
+    "shards": 18,
+    "config_sha256": "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab"
+  },
+  "adapter_sha256": "6146939b60d9d3837bc887c3d8216c17fa57c2884e9dbd7f158daa62ca9eb0fe",
+  "adapter_tensors_matched": 992,
+  "example_id": "smoke-01",
+  "completion_loss": 1.5945029258728027,
+  "generated_tokens": 17,
+  "max_new_tokens": 128,
+  "sample_answer": "TTFT is the time from a request until the first generated token is returned.",
+  "ended_with_eos": true,
+  "quality_improvement_evaluated": false
+}

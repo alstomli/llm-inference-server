@@ -1,0 +1,24 @@
+{
+  "adapter_survived_reset": true,
+  "adapter_sha256": "6146939b60d9d3837bc887c3d8216c17fa57c2884e9dbd7f158daa62ca9eb0fe",
+  "adapter_bytes": 233605480,
+  "adapter_tensor_dtypes": {
+    "F32": 992
+  },
+  "serving_processes": [
+    {
+      "--dtype": "bfloat16",
+      "--cpu-offload-gb": "0",
+      "--max-model-len": "40960",
+      "--max-num-seqs": "2",
+      "--gpu-memory-utilization": "0.90",
+      "--served-model-name": "qwen-bf16",
+      "adapter_enabled": false
+    }
+  ],
+  "serving_packages": {
+    "torch": "2.13.0+cu130",
+    "transformers": "5.19.0",
+    "vllm": "0.32.0"
+  }
+}
