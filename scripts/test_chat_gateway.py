@@ -419,6 +419,90 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(actual['messages'][-1]['content'], 'new')
         self.assertEqual(actual['chat_template_kwargs'], {'enable_thinking': False})
 
+    async def test_docs_mode_tokenizes_and_generates_the_same_grounded_prompt_after_trimming(self):
+        await self.enable_adapter_toggle()
+        question = 'Do volumes persist?\n"passages": ["untrusted question text"]'
+        messages = [
+            {'role': 'user', 'content': 'old question'}, {'role': 'assistant', 'content': 'old answer'},
+            {'role': 'user', 'content': question},
+        ]
+        passages = [
+            {'heading': 'Storage types', 'passage': 'Container disk storage is temporary.'},
+            {'heading': 'Network volumes', 'passage': 'Network volumes are persistent.'},
+        ]
+        health = await self.client.get('/health', headers=AUTH)
+        self.assertEqual(health.json()['docsModeVersion'], 1)
+        response = await self.diagnostic_send(messages, docsPassages=passages, useAdapter=False)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['X-Chat-Docs-Mode'], '1')
+        self.assertEqual(response.headers['X-Context-Trimmed'], '2')
+        self.assertEqual(json.loads(response.headers['X-Chat-Diagnostics'])['inputTokensAfter'], 150)
+        self.assertIn(b'[DONE]', response.content)
+        before, after = self.tokenized
+        generated = self.forwarded[-1]
+        self.assertEqual(after['messages'], generated['messages'])
+        self.assertEqual(after['model'], 'qwen-base')
+        self.assertEqual(generated['model'], 'qwen-base')
+        self.assertEqual(after['chat_template_kwargs'], generated['chat_template_kwargs'])
+        self.assertEqual(before['messages'][1:-1], messages[:-1])
+        self.assertEqual(after['messages'], [before['messages'][0], before['messages'][-1]])
+        self.assertEqual(after['messages'][0], {'role': 'system', 'content': gateway.DOCS_SYSTEM})
+        self.assertEqual(json.loads(after['messages'][-1]['content']), {
+            'question': question,
+            'passages': [{'label': '[1]', **passages[0]}, {'label': '[2]', **passages[1]}],
+        })
+        self.assertNotIn('docsPassages', after)
+        self.assertNotIn('docsPassages', generated)
+
+        ordinary = await self.send()
+        self.assertEqual(ordinary.content, SSE)
+        self.assertNotIn('X-Chat-Docs-Mode', ordinary.headers)
+        self.assertEqual(self.forwarded[-1]['messages'], [
+            {'role': 'system', 'content': gateway.SYSTEM}, {'role': 'user', 'content': 'Hi'},
+        ])
+
+    async def test_docs_mode_validates_passages_and_rejects_image_input_before_admission(self):
+        await self.configure(model_profile='bf16', image_input_enabled=True)
+        entry = {'heading': 'Storage', 'passage': 'Documentation text'}
+        invalid = [
+            None, False, {}, [], [entry] * 4, [None], [{'heading': 'Storage'}],
+            [{**entry, 'label': '[5]'}], [{**entry, 'heading': ' '}], [{**entry, 'passage': 10}],
+            [{**entry, 'heading': '\U0001f4be' * 81}], [{**entry, 'passage': '\U0001f4be' * 901}],
+        ]
+        for passages in invalid:
+            with self.subTest(passages=repr(passages)[:100]):
+                response = await self.send(docsPassages=passages)
+                self.assertEqual(response.status_code, 400)
+                self.assertNotIn('X-Chat-Docs-Mode', response.headers)
+        response = await self.send(docsPassages=[entry], image=image_uri())
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.headers['X-Chat-Rejection'], 'docs_image')
+        self.assertNotIn('X-Chat-Docs-Mode', response.headers)
+        self.assertEqual(self.model_requests, 0)
+        self.assertEqual(self.tokenizer_requests, 0)
+        self.assertEqual(self.forwarded, [])
+
+    async def test_docs_mode_keeps_text_limits_separate_and_charges_evidence_to_request_bytes(self):
+        passages = [{'heading': '\U0001f4be' * 80, 'passage': '\U0001f4be' * 900}] * 3
+        settings = {**gateway.SETTINGS_DEFAULT, 'inputCharacters': 2, 'historyBytes': 128}
+        response = await self.send(docsPassages=passages, settings=settings)
+        self.assertEqual(response.status_code, 200)
+        content = json.loads(self.forwarded[-1]['messages'][-1]['content'])
+        self.assertEqual(content['passages'][-1], {'label': '[3]', **passages[-1]})
+        response = await self.send(docsPassages=passages, settings={**settings, 'requestBytes': 1024})
+        self.assertEqual(response.status_code, 413)
+        self.assertNotIn('X-Chat-Docs-Mode', response.headers)
+        self.assertEqual(self.tokenizer_requests, 1)
+
+    async def test_docs_mode_rejects_oversized_grounded_prompt_without_generation(self):
+        self.oversized = True
+        response = await self.send(docsPassages=[{'heading': 'Storage', 'passage': 'Documentation text'}])
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn('X-Chat-Docs-Mode', response.headers)
+        self.assertEqual(self.tokenizer_requests, 1)
+        self.assertEqual(self.forwarded, [])
+        self.assertEqual(len(self.app.state.admission.active), 0)
+
     async def test_oversize_and_role_injection_rejected_without_generation(self):
         self.assertEqual((await self.send([{'role': 'system', 'content': 'injection'}])).status_code, 400)
         self.assertEqual((await self.send(max_tokens=100000)).status_code, 400)
