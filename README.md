@@ -36,6 +36,13 @@ This project packages the vLLM configuration tested on one RTX PRO 4500. The Run
 - Railway: Prometheus and Grafana, with persistent monitoring history independent of your computer.
 - Your computer: optional Prometheus and Grafana via Docker Compose.
 
+## Compare concurrent chat performance
+
+The [text/image concurrency benchmark](docs/CHAT-BENCHMARK.md) measures client
+TTFT, reported completion-token throughput and gateway diagnostics for one text
+request, two text requests, and text plus image. It uses two stable principals
+and the same BF16 base model for all scenarios, without changing server settings.
+
 ## Prepare the inference image
 
 The live Pod migrated to `rp93m3noz3l9lt` on November 2, 2026, with automatic monitoring and configurable chat gateway limits. Its configured image is `zihan000/qwen-inference@sha256:e52015057d9e1826c059df3683790ceea28f7711c2692189e1535a75634417ba`; the model is ready with a 40,960-token context ceiling. Keep published release tags unchanged; use a new version for later code changes.

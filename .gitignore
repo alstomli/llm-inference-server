@@ -12,3 +12,4 @@ venv/
 htmlcov/
 .DS_Store
 Thumbs.db
+benchmark-results/

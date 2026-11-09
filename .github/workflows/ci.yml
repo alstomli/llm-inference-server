@@ -23,6 +23,7 @@ jobs:
           bash -n deployments/qwen-bf16/bootstrap.sh
           python deployments/qwen-bf16/test_prepare_model.py
           python scripts/test_deploy_runpod.py
+          python scripts/test_benchmark_chat.py
       - name: Build inference image
         run: docker build --platform linux/amd64 -t inference-ci .
       - name: Run tests in image without a GPU
