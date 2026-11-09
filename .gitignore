@@ -13,3 +13,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 benchmark-results/
+gateway/chat-gateway
+gateway/chat-gateway.exe
+gateway/coverage.out

@@ -1,3 +1,11 @@
+FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS gateway-build
+WORKDIR /src
+COPY gateway/go.mod gateway/go.sum ./
+RUN go mod download
+COPY gateway/ ./
+RUN go vet ./... && go test -race ./... \
+ && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/chat-gateway ./cmd/chat-gateway
+
 FROM vllm/vllm-openai:v0.32.0
 # Preserve the vendor stack, including its existing dependency overrides.
 # Jupyter must not introduce any additional pip-check conflicts.
@@ -14,6 +22,7 @@ COPY scripts/start-jupyter.py /usr/local/lib/start-jupyter.py
 COPY scripts/start-server.sh /usr/local/bin/start-server
 COPY scripts/metrics-relay.py /usr/local/lib/metrics-relay.py
 COPY scripts/chat-gateway.py /usr/local/lib/chat-gateway.py
+COPY --from=gateway-build /out/chat-gateway /usr/local/bin/chat-gateway
 COPY scripts/validate-lora-adapter.py /usr/local/lib/validate-lora-adapter.py
 COPY deployments/qwen-bf16/prepare_model.py /usr/local/lib/prepare-bf16-model.py
 RUN chmod +x /usr/local/bin/start-server

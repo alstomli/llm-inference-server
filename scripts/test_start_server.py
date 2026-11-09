@@ -68,7 +68,7 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         }
         for key in ('MODEL_PROFILE', 'MODEL_ID', 'SERVED_MODEL_NAME', 'BF16_ROOT',
                     'VLLM_BASE_MODEL_NAME', 'LORA_ADAPTER_PATH', 'MAX_LORA_RANK',
-                    'CPU_OFFLOAD_GB', 'MAX_NUM_SEQS', 'MAX_MODEL_LEN'):
+                    'CPU_OFFLOAD_GB', 'MAX_NUM_SEQS', 'MAX_MODEL_LEN', 'CHAT_GATEWAY_IMPLEMENTATION'):
             self.env.pop(key, None)
         self.process = None
 
@@ -176,7 +176,7 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.ready(self.port, True)
         self.ready(self.chat_port, True, '/health')
         children = Path(f'/proc/{self.process.pid}/task/{self.process.pid}/children').read_text().split()
-        chat_pid = next(int(pid) for pid in children if b'/usr/local/lib/chat-gateway.py' in Path(f'/proc/{pid}/cmdline').read_bytes())
+        chat_pid = next(int(pid) for pid in children if b'/usr/local/bin/chat-gateway' in Path(f'/proc/{pid}/cmdline').read_bytes())
         os.kill(chat_pid, signal.SIGKILL)
         self.process.communicate(timeout=10)
         self.assertEqual(self.process.returncode, 137)
@@ -188,6 +188,19 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         output = self.process.communicate(timeout=10)[0]
         self.assertEqual(self.process.returncode, 1)
         self.assertIn('Chat token file is missing', output)
+        self.closed(8000)
+
+    def test_explicit_python_rollback_keeps_authenticated_health(self):
+        self.start(METRICS_ENABLED='false', CHAT_ENABLED='true', CHAT_GATEWAY_IMPLEMENTATION='python')
+        health = json.loads(self.ready(self.chat_port, True, '/health'))
+        self.assertTrue(health['accountQuotasEnforced'])
+        self.assertEqual(health['accountQuotaVersion'], 1)
+
+    def test_unknown_gateway_implementation_refuses_startup(self):
+        self.start(CHAT_ENABLED='true', CHAT_GATEWAY_IMPLEMENTATION='unknown')
+        output = self.process.communicate(timeout=10)[0]
+        self.assertEqual(self.process.returncode, 1)
+        self.assertIn('CHAT_GATEWAY_IMPLEMENTATION must be', output)
         self.closed(8000)
 
 
