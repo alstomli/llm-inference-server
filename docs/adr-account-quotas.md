@@ -1,0 +1,11 @@
+# Decision: trusted account admission at the gateway
+
+Status: accepted for this change; no deployment performed.
+
+The frontend authenticates the request with Supabase `getUser()`, verifies the Google identity and active session, and returns one principal used by chat. It overwrites private `X-Chat-User-Id` with the verified canonical user UUID. Browser headers and body fields cannot choose identity. The gateway checks its bearer first, validates this UUID before reading a chat body, and keeps health bearer-only. Any holder of the private gateway token is inside this trust boundary and can assert a principal, so that credential stays on the server.
+
+Account and global rate/capacity admission are one synchronous operation on one event loop, with no await between checks and reservation. Accepted work remains counted until its rolling-window entry expires; cancellation or failure does not refund it. The scheduler promotes the oldest eligible waiter without head-of-line blocking or newcomer bypass. Active work includes tokenization, prefill and streaming. Disconnect cancels queued or preparing work; shielded upstream cleanup completes before an active reservation is released and a waiter can start. Release is idempotent. Idle history is lazily pruned.
+
+State belongs to one gateway process per Pod. Exactly one worker owns each engine's quotas; multiple workers or replicas would multiply limits and require a different shared-state design. Adapter/base aliases share the process budget; separate 4bit/BF16 Pods have independent budgets. Process restarts reset the rate window. This change adds no external storage or infrastructure.
+
+Strict identity enforcement defaults on. Explicit temporary `CHAT_REQUIRE_USER_ID=false` gives missing IDs one bounded legacy principal, while malformed IDs always fail. Health advertises version1 and the actual enforcement flag. The matching frontend fails 503 unless enforcement is true. Rollout is compatibility gateway, identity-forwarding frontend, strict gateway, then traffic activation after verification; temporary 503 is expected if traffic reaches the new frontend before strict gateway verification. Normal rollback keeps strict enforcement with a compatible frontend, or disables chat. An old frontend plus temporary compatibility requires an explicit operator security tradeoff.

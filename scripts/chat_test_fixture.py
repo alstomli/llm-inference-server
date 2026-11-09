@@ -104,7 +104,7 @@ if __name__ == '__main__':
     threading.Thread(target=server.serve_forever, daemon=True).start()
     spec = importlib.util.spec_from_file_location('gateway', Path(__file__).with_name('chat-gateway.py'))
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-    uvicorn.run(module.create_app(TOKEN, upstream=f'http://127.0.0.1:{model_port}',
+    uvicorn.run(module.create_app(TOKEN, require_user_id=True, upstream=f'http://127.0.0.1:{model_port}',
         model='qwen-bf16' if ADAPTER else 'qwen', base_model='qwen-bf16-base' if ADAPTER else None,
         **({'model_profile': 'bf16', 'image_input_enabled': True} if IMAGE_INPUT else {})),
         host='127.0.0.1' if os.environ.get('CHAT_TEST_FIXTURE_PYTHON') else '0.0.0.0', port=int(os.environ.get('CHAT_FIXTURE_PORT', '8001')), access_log=False, log_level='warning')
