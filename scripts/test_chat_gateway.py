@@ -7,6 +7,7 @@ import json
 import re
 from pathlib import Path
 import unittest
+from uuid import uuid4
 import httpx
 from PIL import Image
 
@@ -15,6 +16,10 @@ gateway = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gateway)
 TOKEN = 'test-token-' + 'x' * 40
 AUTH = {'Authorization': 'Bearer ' + TOKEN}
+def user_auth(user=None):
+    return {**AUTH, 'X-Chat-User-Id': str(uuid4()) if user is None else user}
+
+
 SSE = b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: [DONE]\n\n'
 
 
@@ -122,7 +127,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         await self.app.state.client.aclose()
 
     async def send(self, messages=None, **extra):
-        return await self.client.post('/v1/chat/completions', headers=AUTH, json={
+        return await self.client.post('/v1/chat/completions', headers=user_auth(), json={
             'messages': messages or [{'role': 'user', 'content': 'Hi'}], 'stream': True, **extra,
         })
 
@@ -133,19 +138,19 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url='http://test')
 
     async def diagnostic_send(self, messages=None, **extra):
-        return await self.client.post('/v1/chat/completions', headers={**AUTH, 'X-Chat-Diagnostics': '1'}, json={
+        return await self.client.post('/v1/chat/completions', headers={**user_auth(), 'X-Chat-Diagnostics': '1'}, json={
             'messages': messages or [{'role': 'user', 'content': 'Hi'}], 'stream': True, **extra,
         })
 
     async def test_diagnostics_require_server_opt_in_and_authentication(self):
         self.assertEqual((await self.diagnostic_send()).status_code, 403)
         self.assertEqual(self.forwarded, [])
-        self.assertEqual((await self.client.get('/health', headers=AUTH)).json()['diagnosticsVersion'], 0)
+        self.assertEqual((await self.client.get('/health', headers=user_auth())).json()['diagnosticsVersion'], 0)
         await self.enable_diagnostics()
         denied = await self.client.post('/v1/chat/completions', headers={'X-Chat-Diagnostics': '1'}, json={})
         self.assertEqual(denied.status_code, 401)
         self.assertNotIn('X-Chat-Diagnostics', denied.headers)
-        self.assertEqual((await self.client.get('/health', headers=AUTH)).json()['diagnosticsVersion'], 1)
+        self.assertEqual((await self.client.get('/health', headers=user_auth())).json()['diagnosticsVersion'], 1)
 
     async def test_diagnostics_reuse_exact_counts_and_normal_stream_is_unchanged(self):
         await self.enable_diagnostics()
@@ -225,12 +230,193 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 503)
         self.assertIsNone(json.loads(response.headers['X-Chat-Diagnostics'])['inputTokensBefore'])
 
+    def raw_chat(self, app, disconnect, user='11111111-1111-4111-8111-111111111111'):
+        body = json.dumps({'messages': [{'role': 'user', 'content': 'Hi'}], 'stream': True}).encode()
+        received = False
+
+        async def receive():
+            nonlocal received
+            if not received:
+                received = True
+                return {'type': 'http.request', 'body': body, 'more_body': False}
+            await disconnect.wait()
+            return {'type': 'http.disconnect'}
+
+        async def send(_message):
+            pass
+
+        scope = {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.3'},
+                 'http_version': '1.1', 'method': 'POST', 'scheme': 'http',
+                 'path': '/v1/chat/completions', 'raw_path': b'/v1/chat/completions',
+                 'query_string': b'', 'root_path': '', 'server': ('test', 80), 'client': ('test', 1),
+                 'headers': [(b'authorization', ('Bearer ' + TOKEN).encode()),
+                             (b'content-type', b'application/json'), (b'x-chat-user-id', user.encode())]}
+        return asyncio.create_task(app(scope, receive, send))
+
+    async def test_disconnect_cancels_context_tokenization_and_prefill_before_headers(self):
+        for blocked_path in ['/v1/models', '/tokenize', '/v1/chat/completions']:
+            with self.subTest(stage=blocked_path):
+                entered, cancelled, disconnect = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+                async def upstream(request):
+                    if request.url.path == blocked_path:
+                        entered.set()
+                        try:
+                            await asyncio.Event().wait()
+                        finally:
+                            cancelled.set()
+                    if request.url.path == '/v1/models':
+                        return httpx.Response(200, json={'data': [{'id': 'qwen', 'max_model_len': 40960}]})
+                    return httpx.Response(200, json={'count': 10})
+
+                app = gateway.create_app(TOKEN, transport=httpx.MockTransport(upstream))
+                task = self.raw_chat(app, disconnect)
+                try:
+                    await asyncio.wait_for(entered.wait(), 2)
+                    self.assertEqual(len(app.state.admission.active), 1)
+                    disconnect.set()
+                    await asyncio.wait_for(task, 2)
+                    self.assertTrue(cancelled.is_set())
+                    self.assertFalse(app.state.admission.active)
+                    self.assertFalse(app.state.admission.owners)
+                finally:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    await app.state.client.aclose()
+
+    async def test_disconnect_holds_account_and_global_slot_until_delayed_close_completes(self):
+        entered, close_started, close_release, closed, disconnect = [asyncio.Event() for _ in range(5)]
+
+        class SlowClose(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                entered.set()
+                await asyncio.Event().wait()
+                yield SSE
+
+            async def aclose(self):
+                close_started.set()
+                await close_release.wait()
+                closed.set()
+
+        async def upstream(request):
+            if request.url.path == '/v1/models':
+                return httpx.Response(200, json={'data': [{'id': 'qwen', 'max_model_len': 40960}]})
+            if request.url.path == '/tokenize':
+                return httpx.Response(200, json={'count': 10})
+            return httpx.Response(200, stream=SlowClose())
+
+        app = gateway.create_app(TOKEN, transport=httpx.MockTransport(upstream))
+        user = '11111111-1111-4111-8111-111111111111'
+        task = self.raw_chat(app, disconnect, user)
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            queued, _, _ = app.state.admission.reserve(user)
+            disconnect.set()
+            await asyncio.wait_for(close_started.wait(), 2)
+            self.assertEqual(len(app.state.admission.active), 1)
+            self.assertEqual(app.state.admission.accounts[user]['active'], 1)
+            self.assertFalse(queued.done())
+            close_release.set()
+            await asyncio.wait_for(task, 2)
+            self.assertTrue(closed.is_set())
+            self.assertTrue(queued.done())
+            self.assertEqual(app.state.admission.accounts[user]['active'], 1)
+            app.state.admission.release(queued)
+            self.assertFalse(app.state.admission.active)
+        finally:
+            close_release.set()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await app.state.client.aclose()
+
+    async def test_disconnect_during_error_response_close_keeps_one_owned_cleanup(self):
+        close_started, close_release, closed, disconnect = [asyncio.Event() for _ in range(4)]
+        close_calls = 0
+
+        class SlowErrorClose(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b'private failure detail'
+
+            async def aclose(self):
+                nonlocal close_calls
+                close_calls += 1
+                close_started.set()
+                await close_release.wait()
+                closed.set()
+
+        async def upstream(request):
+            if request.url.path == '/v1/models':
+                return httpx.Response(200, json={'data': [{'id': 'qwen', 'max_model_len': 40960}]})
+            if request.url.path == '/tokenize':
+                return httpx.Response(200, json={'count': 10})
+            return httpx.Response(500, stream=SlowErrorClose())
+
+        app = gateway.create_app(TOKEN, transport=httpx.MockTransport(upstream))
+        task = self.raw_chat(app, disconnect)
+        try:
+            await asyncio.wait_for(close_started.wait(), 2)
+            disconnect.set()
+            await asyncio.sleep(0.05)
+            self.assertFalse(closed.is_set())
+            self.assertEqual(len(app.state.admission.active), 1)
+            close_release.set()
+            await asyncio.wait_for(task, 2)
+            self.assertTrue(closed.is_set())
+            self.assertEqual(close_calls, 1)
+            self.assertFalse(app.state.admission.active)
+            self.assertFalse(app.state.admission.owners)
+        finally:
+            close_release.set()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await app.state.client.aclose()
+
+    async def test_identity_is_required_before_body_admission_and_health_needs_only_bearer(self):
+        health = (await self.client.get('/health', headers=AUTH)).json()
+        self.assertEqual((health['accountQuotaVersion'], health['accountQuotasEnforced']), (1, True))
+        for value in [None, '', 'alice', '11111111111141118111111111111111', ' 11111111-1111-4111-8111-111111111111', 'urn:uuid:11111111-1111-4111-8111-111111111111']:
+            headers = {**AUTH, **({'X-Chat-User-Id': value} if value is not None else {})}
+            response = await self.client.post('/v1/chat/completions', headers=headers, content='invalid JSON')
+            self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.tokenizer_requests, 0)
+        self.assertFalse(self.app.state.admission.accounts)
+        denied = await self.client.post('/v1/chat/completions', headers={'X-Chat-User-Id': 'bad'}, content='bad')
+        self.assertEqual(denied.status_code, 401)
+
+    async def test_account_rate_normalizes_uuid_and_ignores_body_identity(self):
+        await self.enable_adapter_toggle()
+        user = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'
+        for index in range(6):
+            response = await self.client.post('/v1/chat/completions', headers=user_auth(user if index % 2 else user.lower()), json={
+                'messages': [{'role': 'user', 'content': 'Hi'}], 'stream': True, 'userId': str(uuid4()), 'useAdapter': bool(index % 2)})
+            self.assertEqual(response.status_code, 200)
+        response = await self.client.post('/v1/chat/completions', headers=user_auth(user), json={
+            'messages': [{'role': 'user', 'content': 'Hi'}], 'stream': True})
+        self.assertEqual((response.status_code, response.headers['X-Chat-Rejection']), (429, 'user_rate_limit'))
+        self.assertTrue(1 <= int(response.headers['Retry-After']) <= 60)
+        self.assertEqual((await self.send()).status_code, 200)
+        self.assertEqual(len(self.app.state.admission.accounts[user.lower()]['recent']), 6)
+
+    async def test_compatibility_missing_ids_share_bounded_account_but_invalid_ids_fail(self):
+        await self.configure(require_user_id=False)
+        health = (await self.client.get('/health', headers=AUTH)).json()
+        self.assertFalse(health['accountQuotasEnforced'])
+        for _ in range(6):
+            response = await self.client.post('/v1/chat/completions', headers=AUTH, json={
+                'messages': [{'role': 'user', 'content': 'Hi'}], 'stream': True})
+            self.assertEqual(response.status_code, 200)
+        response = await self.client.post('/v1/chat/completions', headers=AUTH, json={
+            'messages': [{'role': 'user', 'content': 'Hi'}], 'stream': True})
+        self.assertEqual(response.headers['X-Chat-Rejection'], 'user_rate_limit')
+        self.assertEqual((await self.client.post('/v1/chat/completions', headers=user_auth('bad'), content='bad')).status_code, 400)
+        self.assertEqual((await self.send()).status_code, 200)
+
     async def test_authentication_and_route_isolation(self):
         for headers in ({}, {'Authorization': 'Bearer wrong'}):
             self.assertEqual((await self.client.get('/health', headers=headers)).status_code, 401)
         for path in ['/metrics', '/docs', '/openapi.json', '/v1/models']:
-            self.assertEqual((await self.client.get(path, headers=AUTH)).status_code, 404)
-        self.assertEqual((await self.client.get('/health', headers=AUTH)).status_code, 200)
+            self.assertEqual((await self.client.get(path, headers=user_auth())).status_code, 404)
+        self.assertEqual((await self.client.get('/health', headers=user_auth())).status_code, 200)
 
     async def configure(self, **options):
         await self.client.aclose()
@@ -246,7 +432,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         image = image_uri()
         for profile, enabled in [('4bit', False), ('4bit', True), ('bf16', False), ('bf16', True)]:
             await self.configure(model_profile=profile, image_input_enabled=enabled)
-            health = (await self.client.get('/health', headers=AUTH)).json()
+            health = (await self.client.get('/health', headers=user_auth())).json()
             if profile == 'bf16' and enabled:
                 self.assertEqual(health['imageInputVersion'], 1)
                 self.assertEqual(health['imageInput'], {
@@ -329,7 +515,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_adapter_toggle_routes_tokenizer_generation_and_diagnostics_per_request(self):
         await self.enable_adapter_toggle()
-        health = (await self.client.get('/health', headers=AUTH)).json()
+        health = (await self.client.get('/health', headers=user_auth())).json()
         self.assertTrue(health['adapterToggleAvailable'])
         self.assertEqual(health['adapterToggleVersion'], 1)
         for enabled, alias in [(True, 'qwen'), (False, 'qwen-base'), (True, 'qwen')]:
@@ -348,7 +534,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.send(useAdapter=value)).status_code, 400)
         self.assertEqual(self.forwarded, [])
         self.model_cards[1]['parent'] = 'other'
-        self.assertEqual((await self.client.get('/health', headers=AUTH)).status_code, 503)
+        self.assertEqual((await self.client.get('/health', headers=user_auth())).status_code, 503)
         self.assertEqual((await self.send(useAdapter=False)).status_code, 503)
         self.assertEqual(self.forwarded, [])
 
@@ -368,7 +554,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.model_cards = [{'id': 'unrelated', 'max_model_len': 40960},
                             {'id': 'qwen-base', 'max_model_len': 8192},
                             {'id': 'qwen', 'parent': 'qwen-base', 'max_model_len': None}]
-        health = (await self.client.get('/health', headers=AUTH)).json()
+        health = (await self.client.get('/health', headers=user_auth())).json()
         self.assertTrue(health['ready'])
         self.assertEqual(health['model'], 'qwen')
         self.assertEqual(health['limits']['contextTokens'], 8192)
@@ -385,12 +571,12 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
                       [{'id': 'qwen', 'parent': 'base', 'max_model_len': 0}, {'id': 'base', 'max_model_len': 40960}]):
             with self.subTest(cards=cards):
                 self.model_cards = cards
-                self.assertEqual((await self.client.get('/health', headers=AUTH)).status_code, 503)
+                self.assertEqual((await self.client.get('/health', headers=user_auth())).status_code, 503)
                 self.assertEqual((await self.send()).status_code, 503)
         self.assertEqual(self.forwarded, [])
 
     async def test_prefix_reuse_uses_unique_server_salts_only_when_disabled(self):
-        self.assertTrue((await self.client.get('/health', headers=AUTH)).json()['limits']['reuseCachedPrefixes'])
+        self.assertTrue((await self.client.get('/health', headers=user_auth())).json()['limits']['reuseCachedPrefixes'])
         self.assertEqual((await self.send(cache_salt='client-controlled')).status_code, 200)
         self.assertNotIn('cache_salt', self.forwarded[-1])
         settings = {**gateway.SETTINGS_DEFAULT, 'reuseCachedPrefixes': False}
@@ -430,7 +616,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             {'heading': 'Storage types', 'passage': 'Container disk storage is temporary.'},
             {'heading': 'Network volumes', 'passage': 'Network volumes are persistent.'},
         ]
-        health = await self.client.get('/health', headers=AUTH)
+        health = await self.client.get('/health', headers=user_auth())
         self.assertEqual(health.json()['docsModeVersion'], 1)
         response = await self.diagnostic_send(messages, docsPassages=passages, useAdapter=False)
         self.assertEqual(response.status_code, 200)
@@ -550,7 +736,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_context_ceiling_comes_from_running_model(self):
         self.model_context = 4096
-        health = await self.client.get('/health', headers=AUTH)
+        health = await self.client.get('/health', headers=user_auth())
         self.assertEqual(health.json()['limits']['contextTokens'], 4096)
         self.assertEqual((await self.send(settings=gateway.SETTINGS_DEFAULT)).status_code, 400)
         settings = {**gateway.SETTINGS_DEFAULT, 'contextTokens': 4096, 'outputTokens': 512}
@@ -726,6 +912,87 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.closed)
         self.block = False
         self.assertEqual((await self.send()).status_code, 200)
+
+
+class AdmissionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_eligible_fifo_and_newcomers_cannot_bypass(self):
+        q = gateway.AdmissionQueue()
+        a1, _, _ = q.reserve('a')
+        a2, _, _ = q.reserve('a')
+        b1, _, _ = q.reserve('b')
+        b2, _, _ = q.reserve('b')
+        c1, _, _ = q.reserve('c')
+        self.assertEqual(q.reserve('a')[1:], ('user_capacity', None))
+        q.release(b1)
+        # A's older waiter is ineligible. B's waiter precedes C and starts.
+        self.assertTrue(b2.done())
+        self.assertFalse(a2.done())
+        self.assertFalse(c1.done())
+        d1, _, _ = q.reserve('d')
+        q.release(a1)
+        self.assertTrue(a2.done())
+        q.release(b2)
+        self.assertTrue(c1.done())
+        self.assertFalse(d1.done())
+        for ticket in [a1, a2, b1, b2, c1, d1]:
+            q.release(ticket)
+            q.release(ticket)
+        self.assertFalse(q.active)
+        self.assertFalse(q.waiting)
+        self.assertFalse(q.owners)
+        self.assertTrue(all(state['active'] == state['waiting'] == 0 for state in q.accounts.values()))
+
+    async def test_rates_consumed_only_on_acceptance_and_expire_at_boundary(self):
+        now = [100.0]
+        q = gateway.AdmissionQueue(clock=lambda: now[0])
+        for _ in range(6):
+            ticket, rejection, retry = q.reserve('a')
+            self.assertIsNone(rejection)
+            q.release(ticket)
+        self.assertEqual(q.reserve('a')[1:], ('user_rate_limit', 60))
+        self.assertEqual(len(q.recent), 6)
+        now[0] = 159.9
+        self.assertEqual(q.reserve('a')[1:], ('user_rate_limit', 1))
+        now[0] = 160
+        q.prune()
+        self.assertFalse(q.accounts)
+        self.assertFalse(q.recent)
+        ticket, _, _ = q.reserve('a')
+        q.release(ticket)
+        # No automatic refund for cancelled/failed accepted requests.
+        self.assertEqual(len(q.accounts['a']['recent']), 1)
+
+    async def test_cancelled_waiter_promotion_race_and_account_cleanup(self):
+        now = [0]
+        q = gateway.AdmissionQueue(clock=lambda: now[0])
+        a1, _, _ = q.reserve('a')
+        a2, _, _ = q.reserve('a')
+        a2.cancel()
+        q.release(a1)
+        q.release(a2)
+        self.assertFalse(q.active)
+        self.assertFalse(q.waiting)
+        self.assertEqual(q.accounts['a']['active'], 0)
+        self.assertEqual(q.accounts['a']['waiting'], 0)
+        now[0] = 60
+        q.prune()
+        self.assertFalse(q.accounts)
+
+    async def test_global_capacity_rate_and_config_bounds(self):
+        q = gateway.AdmissionQueue()
+        tickets = [q.reserve(str(index))[0] for index in range(8)]
+        self.assertEqual(q.reserve('overflow')[1:], ('queue_full', None))
+        self.assertEqual(len(q.recent), 8)
+        for ticket in tickets:
+            q.release(ticket)
+        for index in range(12):
+            ticket, _, _ = q.reserve('more-' + str(index))
+            q.release(ticket)
+        self.assertEqual(q.reserve('overflow')[1:], ('rate_limit', 60))
+        for options in [{'user_concurrency': 3}, {'user_concurrency': 0}, {'user_queue_limit': -1},
+                        {'user_queue_limit': 7}, {'user_rate_limit': 21}, {'user_rate_limit': 0}]:
+            with self.assertRaises(ValueError):
+                gateway.AdmissionQueue(**options)
 
 
 if __name__ == '__main__':

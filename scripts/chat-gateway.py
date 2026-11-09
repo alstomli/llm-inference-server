@@ -5,6 +5,7 @@ import base64
 from collections import deque
 from contextlib import asynccontextmanager
 import hmac
+import math
 from io import BytesIO
 import json
 import os
@@ -14,6 +15,7 @@ import struct
 from pathlib import Path
 import time
 
+import anyio
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -45,38 +47,102 @@ MAX_IMAGE_DIMENSION = 2048
 
 
 class AdmissionQueue:
-    """FIFO reservations owned by one event loop; granted slots include stream lifetime."""
-    def __init__(self, concurrency=2, queue_limit=6):
-        if type(concurrency) is not int or concurrency < 1 or type(queue_limit) is not int or queue_limit < 0:
-            raise ValueError('Invalid admission limits')
-        self.concurrency = concurrency
-        self.queue_limit = queue_limit
-        self.active = set()
-        self.waiting = deque()
+    """Process-local, event-loop-owned reservations, including the full stream lifetime.
 
-    def reserve(self):
+    Admission and rate consumption are one synchronous operation: never add an
+    await here. Scan oldest eligible waiters so a busy account cannot block peers.
+    """
+    def __init__(self, concurrency=2, queue_limit=6, rate_limit=20,
+                 user_concurrency=1, user_queue_limit=1, user_rate_limit=6, clock=time.monotonic):
+        for value, maximum, minimum in ((concurrency, 2, 1), (queue_limit, 6, 0), (rate_limit, 20, 1),
+                (user_concurrency, concurrency, 1), (user_queue_limit, queue_limit, 0),
+                (user_rate_limit, rate_limit, 1)):
+            if type(value) is not int or not minimum <= value <= maximum:
+                raise ValueError('Invalid admission limits')
+        self.concurrency, self.queue_limit, self.rate_limit = concurrency, queue_limit, rate_limit
+        self.user_concurrency, self.user_queue_limit = user_concurrency, user_queue_limit
+        self.user_rate_limit, self.clock = user_rate_limit, clock
+        self.active, self.waiting, self.owners = set(), deque(), {}
+        self.recent, self.accounts = deque(), {}
+
+    def prune(self, now=None):
+        now = self.clock() if now is None else now
+        while self.recent and self.recent[0] <= now - 60:
+            self.recent.popleft()
+        for user, state in list(self.accounts.items()):
+            while state['recent'] and state['recent'][0] <= now - 60:
+                state['recent'].popleft()
+            if not state['active'] and not state['waiting'] and not state['recent']:
+                del self.accounts[user]
+
+    def _promote(self):
+        for ticket in list(self.waiting):
+            if len(self.active) >= self.concurrency:
+                break
+            user = self.owners[ticket]
+            state = self.accounts[user]
+            if ticket.cancelled():
+                self.waiting.remove(ticket)
+                state['waiting'] -= 1
+                del self.owners[ticket]
+            elif state['active'] < self.user_concurrency:
+                self.waiting.remove(ticket)
+                state['waiting'] -= 1
+                state['active'] += 1
+                self.active.add(ticket)
+                ticket.set_result(None)
+
+    def reserve(self, user):
+        now = self.clock()
+        self.prune(now)
+        # Older eligible reservations always receive free slots first.
+        self._promote()
+        state = self.accounts.get(user)
+        if len(self.recent) >= self.rate_limit:
+            return None, 'rate_limit', min(60, max(1, math.ceil(self.recent[0] + 60 - now)))
+        if state is not None and len(state['recent']) >= self.user_rate_limit:
+            return None, 'user_rate_limit', min(60, max(1, math.ceil(state['recent'][0] + 60 - now)))
+        can_start = len(self.active) < self.concurrency and (state is None or state['active'] < self.user_concurrency)
+        if not can_start:
+            if state is not None and state['waiting'] >= self.user_queue_limit:
+                return None, 'user_capacity', None
+            if self.user_queue_limit == 0:
+                return None, 'user_capacity', None
+            if len(self.waiting) >= self.queue_limit:
+                return None, 'queue_full', None
+        if state is None:
+            state = self.accounts[user] = {'active': 0, 'waiting': 0, 'recent': deque()}
         ticket = asyncio.get_running_loop().create_future()
-        if len(self.active) < self.concurrency and not self.waiting:
+        self.owners[ticket] = user
+        if can_start:
+            state['active'] += 1
             self.active.add(ticket)
             ticket.set_result(None)
-        elif len(self.waiting) < self.queue_limit:
-            self.waiting.append(ticket)
         else:
-            return None
-        return ticket
+            state['waiting'] += 1
+            self.waiting.append(ticket)
+        self.recent.append(now)
+        state['recent'].append(now)
+        return ticket, None, None
 
     def release(self, ticket):
+        user = self.owners.pop(ticket, None)
+        if user is None:
+            return  # Cancellation/promotion cleanup is idempotent.
+        state = self.accounts[user]
         if ticket in self.active:
             self.active.remove(ticket)
-        elif ticket in self.waiting:
-            self.waiting.remove(ticket)
-            ticket.cancel()
+            state['active'] -= 1
         else:
-            return  # Cleanup can race with cancellation; release only once.
-        while self.waiting and len(self.active) < self.concurrency:
-            next_ticket = self.waiting.popleft()
-            self.active.add(next_ticket)
-            next_ticket.set_result(None)
+            self.waiting.remove(ticket)
+            state['waiting'] -= 1
+            ticket.cancel()
+        self._promote()
+        self.prune()
+
+
+USER_ID = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
+LEGACY_PRINCIPAL = '__legacy__'
 
 
 def validate_settings(value, context):
@@ -157,7 +223,8 @@ def validate_docs_passages(passages):
 
 
 def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None,
-               diagnostics_enabled=None, concurrency=2, base_model=None, model_profile='4bit', image_input_enabled=False):
+               diagnostics_enabled=None, concurrency=2, base_model=None, model_profile='4bit', image_input_enabled=False,
+               require_user_id=None, user_concurrency=None, user_queue_limit=None, user_rate_limit=None):
     if base_model is not None and (not isinstance(base_model, str) or not base_model or base_model == model):
         raise ValueError('Base and adapter aliases must be distinct')
     if not isinstance(token, str) or len(token) < 32:
@@ -168,10 +235,20 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
     headers = {}
     if os.environ.get('VLLM_API_KEY'):
         headers['Authorization'] = 'Bearer ' + os.environ['VLLM_API_KEY']
+    if require_user_id is None:
+        setting = os.environ.get('CHAT_REQUIRE_USER_ID', 'true')
+        if setting not in ('true', 'false'):
+            raise ValueError('CHAT_REQUIRE_USER_ID must be true or false')
+        require_user_id = setting == 'true'
+    if type(require_user_id) is not bool:
+        raise ValueError('Invalid identity enforcement setting')
+    admission = AdmissionQueue(concurrency=concurrency,
+        user_concurrency=int(os.environ.get('CHAT_USER_MAX_CONCURRENT', '1')) if user_concurrency is None else user_concurrency,
+        user_queue_limit=int(os.environ.get('CHAT_USER_MAX_WAITING', '1')) if user_queue_limit is None else user_queue_limit,
+        user_rate_limit=int(os.environ.get('CHAT_USER_RATE_LIMIT_PER_MINUTE', '6')) if user_rate_limit is None else user_rate_limit)
+
     client = httpx.AsyncClient(base_url=upstream, headers=headers, transport=transport,
                                timeout=httpx.Timeout(60, connect=5), follow_redirects=False)
-    admission = AdmissionQueue(concurrency=concurrency)
-    recent = []
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -184,6 +261,27 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
 
     def error(message, code):
         return JSONResponse({'error': message}, status_code=code, headers={'Cache-Control': 'no-store'})
+
+    closing = {}
+
+    async def close_and_release(response, ticket):
+        # Own one close task independently of the caller: both Starlette's AnyIO
+        # scope and a direct prepare-task cancellation can interrupt an await.
+        # httpx marks is_closed before transport cleanup finishes, so re-closing
+        # the Response is insufficient when callers race with cancellation.
+        task = closing.get(ticket)
+        if task is None:
+            async def cleanup():
+                try:
+                    if response is not None:
+                        await response.aclose()
+                finally:
+                    admission.release(ticket)
+            task = asyncio.create_task(cleanup())
+            closing[ticket] = task
+            task.add_done_callback(lambda completed: closing.pop(ticket, None))
+        with anyio.CancelScope(shield=True):
+            await asyncio.shield(task)
 
     @app.middleware('http')
     async def authenticate(request: Request, call_next):
@@ -224,7 +322,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 if base_model is not None:
                     capacity = min(capacity, await serving_context(base_model))
                 return {'ready': True, 'model': model, 'settingsVersion': 1,
-                        'docsModeVersion': 1,
+                        'docsModeVersion': 1, 'accountQuotaVersion': 1, 'accountQuotasEnforced': require_user_id,
                         'adapterToggleVersion': 1 if base_model is not None else 0,
                         'adapterToggleAvailable': base_model is not None,
                         'diagnosticsVersion': 1 if diagnostics_enabled else 0,
@@ -241,6 +339,21 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
 
     @app.post('/v1/chat/completions')
     async def chat(request: Request):
+        # The bearer middleware runs first. Never trust body identity, cookies, or
+        # external identity headers other than this private gateway contract.
+        identities = request.headers.getlist('x-chat-user-id')
+        if not identities:
+            if require_user_id:
+                response = error('A chat user ID is required', 400)
+                response.headers['X-Chat-Rejection'] = 'user_identity'
+                return response
+            user = LEGACY_PRINCIPAL
+        elif len(identities) != 1 or USER_ID.fullmatch(identities[0]) is None:
+            response = error('Invalid chat user ID', 400)
+            response.headers['X-Chat-Rejection'] = 'user_identity'
+            return response
+        else:
+            user = identities[0].lower()
         request_started = time.monotonic()
         selected_model = model
         adapter_enabled = base_model is not None
@@ -263,11 +376,13 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
                 headers['X-Chat-Adapter-Enabled'] = str(adapter_enabled).lower()
             return headers
 
-        def chat_error(message, code, rejection=None):
+        def chat_error(message, code, rejection=None, retry_after=None):
             response = error(message, code)
             response.headers.update(diagnostic_headers())
             if rejection is not None:
                 response.headers['X-Chat-Rejection'] = rejection
+            if retry_after is not None:
+                response.headers['Retry-After'] = str(retry_after)
             return response
 
         def model_error(text_error):
@@ -329,14 +444,15 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             }, ensure_ascii=False)
             messages = messages[:-1] + [{'role': 'user', 'content': content}]
         deadline = time.monotonic() + settings['timeoutSeconds']
-        now = time.monotonic()
-        recent[:] = [stamp for stamp in recent if stamp > now - 60]
-        if len(recent) >= 20:
-            return chat_error('Chat rate limit reached; retry shortly', 429, 'rate_limit')
-        ticket = admission.reserve()
+        ticket, rejection, retry_after = admission.reserve(user)
         if ticket is None:
-            return chat_error('Chat queue is full; retry shortly', 429, 'queue_full')
-        recent.append(now)
+            messages_by_rejection = {
+                'rate_limit': 'Chat rate limit reached; retry shortly',
+                'user_rate_limit': 'Account chat rate limit reached; retry shortly',
+                'user_capacity': 'Account chat capacity reached; retry shortly',
+                'queue_full': 'Chat queue is full; retry shortly',
+            }
+            return chat_error(messages_by_rejection[rejection], 429, rejection, retry_after)
 
         async def disconnected():
             # Await receive normally: is_disconnected's cancelled polling scope can
@@ -349,168 +465,182 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
             ready, _ = await asyncio.wait({ticket, disconnect}, timeout=max(0, deadline - time.monotonic()), return_when=asyncio.FIRST_COMPLETED)
             if disconnect in ready:
                 admission.release(ticket)
+                disconnect.cancel()
+                await asyncio.gather(disconnect, return_exceptions=True)
                 return chat_error('Request cancelled', 499)
             if ticket not in ready:
                 admission.release(ticket)
+                disconnect.cancel()
+                with anyio.CancelScope(shield=True):
+                    await asyncio.gather(disconnect, return_exceptions=True)
                 return chat_error('Request timed out waiting for the model', 504, 'queue_timeout')
         except BaseException:
             admission.release(ticket)
-            raise
-        finally:
             disconnect.cancel()
-            try:
+            with anyio.CancelScope(shield=True):
                 await asyncio.gather(disconnect, return_exceptions=True)
+            raise
+        response = None
+
+        async def prepare():
+            nonlocal image, messages, response
+            try:
+                if 'image' in value:
+                    try:
+                        image = await asyncio.to_thread(validate_image, value['image'])
+                    except (ValueError, OSError, SyntaxError, OverflowError, struct.error, Image.DecompressionBombError):
+                        admission.release(ticket)
+                        return chat_error('Invalid image attachment.', 400, 'image_invalid')
+                    messages[-1]['content'] = [
+                        {'type': 'text', 'text': messages[-1]['content']},
+                        {'type': 'image_url', 'image_url': {'url': image}},
+                    ]
+                capacity = await asyncio.wait_for(serving_context(selected_model), timeout=max(0.001, deadline - time.monotonic()))
+                if settings['contextTokens'] > capacity:
+                    admission.release(ticket)
+                    return chat_error('Context budget exceeds the running model capacity', 400)
+            except (httpx.HTTPError, ValueError, TypeError, AttributeError, TimeoutError):
+                admission.release(ticket)
+                return model_error('Serving context unavailable')
             except BaseException:
                 admission.release(ticket)
                 raise
-        try:
-            if 'image' in value:
-                try:
-                    image = await asyncio.to_thread(validate_image, value['image'])
-                except (ValueError, OSError, SyntaxError, OverflowError, struct.error, Image.DecompressionBombError):
-                    admission.release(ticket)
-                    return chat_error('Invalid image attachment.', 400, 'image_invalid')
-                messages[-1]['content'] = [
-                    {'type': 'text', 'text': messages[-1]['content']},
-                    {'type': 'image_url', 'image_url': {'url': image}},
-                ]
-            capacity = await asyncio.wait_for(serving_context(selected_model), timeout=max(0.001, deadline - time.monotonic()))
-            if settings['contextTokens'] > capacity:
-                admission.release(ticket)
-                return chat_error('Context budget exceeds the running model capacity', 400)
-        except (httpx.HTTPError, ValueError, TypeError, AttributeError, TimeoutError):
-            admission.release(ticket)
-            return model_error('Serving context unavailable')
-        except BaseException:
-            admission.release(ticket)
-            raise
-        response = None
-        context_started = time.monotonic()
-        timing = {'contextFitMs': None, 'upstreamFirstContentMs': None,
-                  'gatewayFirstContentMs': None, 'gatewayTotalMs': None}
-        try:
-            trimmed = 0
-            while True:
-                conversation = [{'role': 'system', 'content': system}] + messages
-                counts = await asyncio.wait_for(client.post('/tokenize', timeout=settings['timeoutSeconds'], json={
-                    'model': selected_model, 'messages': conversation, 'add_generation_prompt': True,
-                    'chat_template_kwargs': {'enable_thinking': False},
-                }), timeout=max(0.001, deadline - time.monotonic()))
-                if counts.status_code != 200:
-                    admission.release(ticket)
-                    return model_error('Model tokenizer unavailable')
-                payload = counts.json()
-                count = payload.get('count') if isinstance(payload, dict) else None
-                if type(count) is not int or count < 0:
-                    admission.release(ticket)
-                    return model_error('Invalid tokenizer response')
-                if diagnostic is not None:
-                    if diagnostic['inputTokensBefore'] is None:
-                        diagnostic['inputTokensBefore'] = count
-                    diagnostic['lastCountedInputTokens'] = count
-                if count + maximum + settings['safetyTokens'] <= settings['contextTokens']:
+            context_started = time.monotonic()
+            timing = {'contextFitMs': None, 'upstreamFirstContentMs': None,
+                      'gatewayFirstContentMs': None, 'gatewayTotalMs': None}
+            try:
+                trimmed = 0
+                while True:
+                    conversation = [{'role': 'system', 'content': system}] + messages
+                    counts = await asyncio.wait_for(client.post('/tokenize', timeout=settings['timeoutSeconds'], json={
+                        'model': selected_model, 'messages': conversation, 'add_generation_prompt': True,
+                        'chat_template_kwargs': {'enable_thinking': False},
+                    }), timeout=max(0.001, deadline - time.monotonic()))
+                    if counts.status_code != 200:
+                        admission.release(ticket)
+                        return model_error('Model tokenizer unavailable')
+                    payload = counts.json()
+                    count = payload.get('count') if isinstance(payload, dict) else None
+                    if type(count) is not int or count < 0:
+                        admission.release(ticket)
+                        return model_error('Invalid tokenizer response')
                     if diagnostic is not None:
-                        diagnostic['inputTokensAfter'] = count
-                    break
-                if len(messages) <= 1:
-                    admission.release(ticket)
-                    return chat_error('Message exceeds model context', 400)
-                messages = messages[2:]
-                trimmed += 2
-                if diagnostic is not None:
-                    diagnostic['gatewayTrimmedMessages'] = trimmed
-            timing['contextFitMs'] = (time.monotonic() - context_started) * 1000
-            upstream_started = time.monotonic()
-            response = await asyncio.wait_for(client.send(client.build_request('POST', '/v1/chat/completions', timeout=settings['timeoutSeconds'], json={
-                'model': selected_model, 'messages': conversation, 'stream': True,
-                'max_tokens': maximum, 'temperature': temperature,
-                **({'stream_options': {'include_usage': True}} if diagnostic is not None else {}),
-                'chat_template_kwargs': {'enable_thinking': False},
-                **({} if settings['reuseCachedPrefixes'] else {'cache_salt': secrets.token_hex(32)}),
-            }), stream=True), timeout=max(0.001, deadline - time.monotonic()))
-            if response.status_code != 200:
-                await response.aclose()
-                admission.release(ticket)
+                        if diagnostic['inputTokensBefore'] is None:
+                            diagnostic['inputTokensBefore'] = count
+                        diagnostic['lastCountedInputTokens'] = count
+                    if count + maximum + settings['safetyTokens'] <= settings['contextTokens']:
+                        if diagnostic is not None:
+                            diagnostic['inputTokensAfter'] = count
+                        break
+                    if len(messages) <= 1:
+                        admission.release(ticket)
+                        return chat_error('Message exceeds model context', 400)
+                    messages = messages[2:]
+                    trimmed += 2
+                    if diagnostic is not None:
+                        diagnostic['gatewayTrimmedMessages'] = trimmed
+                timing['contextFitMs'] = (time.monotonic() - context_started) * 1000
+                upstream_started = time.monotonic()
+                response = await asyncio.wait_for(client.send(client.build_request('POST', '/v1/chat/completions', timeout=settings['timeoutSeconds'], json={
+                    'model': selected_model, 'messages': conversation, 'stream': True,
+                    'max_tokens': maximum, 'temperature': temperature,
+                    **({'stream_options': {'include_usage': True}} if diagnostic is not None else {}),
+                    'chat_template_kwargs': {'enable_thinking': False},
+                    **({} if settings['reuseCachedPrefixes'] else {'cache_salt': secrets.token_hex(32)}),
+                }), stream=True), timeout=max(0.001, deadline - time.monotonic()))
+                if response.status_code != 200:
+                    await close_and_release(response, ticket)
+                    return model_error('Model unavailable')
+            except (httpx.HTTPError, ValueError, TypeError, TimeoutError):
+                await close_and_release(response, ticket)
                 return model_error('Model unavailable')
-        except (httpx.HTTPError, ValueError, TypeError, TimeoutError):
-            try:
-                if response is not None:
-                    await response.aclose()
-            finally:
-                admission.release(ticket)
-            return model_error('Model unavailable')
-        except BaseException:
-            try:
-                if response is not None:
-                    await response.aclose()
-            finally:
-                admission.release(ticket)
-            raise
+            except BaseException:
+                await close_and_release(response, ticket)
+                raise
 
-        async def generate():
-            buffer = b''
-            timing_sent = False
+            async def generate():
+                buffer = b''
+                timing_sent = False
 
-            def timing_event():
-                timing['gatewayTotalMs'] = (time.monotonic() - request_started) * 1000
-                data = {'version': 1, 'requestId': diagnostic['requestId'],
-                        'timings': {key: round(value, 3) if value is not None else None
-                                    for key, value in timing.items()}}
-                return ('event: chat-timing\ndata: ' + json.dumps(data, separators=(',', ':')) + '\n\n').encode()
+                def timing_event():
+                    timing['gatewayTotalMs'] = (time.monotonic() - request_started) * 1000
+                    data = {'version': 1, 'requestId': diagnostic['requestId'],
+                            'timings': {key: round(value, 3) if value is not None else None
+                                        for key, value in timing.items()}}
+                    return ('event: chat-timing\ndata: ' + json.dumps(data, separators=(',', ':')) + '\n\n').encode()
 
-            try:
-                async with asyncio.timeout(max(0.001, deadline - time.monotonic())):
-                    async for part in response.aiter_bytes():
-                        if diagnostic is None and image is None:
-                            yield part
-                            continue
-                        # Inspect complete events so model errors cannot echo image data.
-                        buffer += part
-                        while (boundary := re.search(rb'\r?\n\r?\n', buffer)) is not None:
-                            frame, buffer = buffer[:boundary.end()], buffer[boundary.end():]
-                            data = b'\n'.join(line[5:].lstrip(b' ') for line in frame.splitlines() if line.startswith(b'data:'))
-                            if image is not None and data and data != b'[DONE]':
-                                item = json.loads(data)
-                                if not isinstance(item, dict) or 'error' in item:
-                                    raise ValueError('Invalid model event')
-                            if diagnostic is not None and data == b'[DONE]' and not timing_sent:
-                                yield timing_event()
-                                timing_sent = True
-                            elif diagnostic is not None and timing['upstreamFirstContentMs'] is None:
-                                try:
+                try:
+                    async with asyncio.timeout(max(0.001, deadline - time.monotonic())):
+                        async for part in response.aiter_bytes():
+                            if diagnostic is None and image is None:
+                                yield part
+                                continue
+                            # Inspect complete events so model errors cannot echo image data.
+                            buffer += part
+                            while (boundary := re.search(rb'\r?\n\r?\n', buffer)) is not None:
+                                frame, buffer = buffer[:boundary.end()], buffer[boundary.end():]
+                                data = b'\n'.join(line[5:].lstrip(b' ') for line in frame.splitlines() if line.startswith(b'data:'))
+                                if image is not None and data and data != b'[DONE]':
                                     item = json.loads(data)
-                                    content = item.get('choices', [{}])[0].get('delta', {}).get('content')
-                                    if isinstance(content, str) and content:
-                                        observed = time.monotonic()
-                                        timing['upstreamFirstContentMs'] = (observed - upstream_started) * 1000
-                                        timing['gatewayFirstContentMs'] = (observed - request_started) * 1000
-                                except (ValueError, IndexError, AttributeError, TypeError):
-                                    pass
-                            yield frame
-                        if len(buffer) > 1_048_576:
-                            raise ValueError('Upstream SSE event too large')
-                    if buffer:
-                        if image is not None:
-                            raise ValueError('Incomplete model event')
-                        yield buffer + b'\n\n'
+                                    if not isinstance(item, dict) or 'error' in item:
+                                        raise ValueError('Invalid model event')
+                                if diagnostic is not None and data == b'[DONE]' and not timing_sent:
+                                    yield timing_event()
+                                    timing_sent = True
+                                elif diagnostic is not None and timing['upstreamFirstContentMs'] is None:
+                                    try:
+                                        item = json.loads(data)
+                                        content = item.get('choices', [{}])[0].get('delta', {}).get('content')
+                                        if isinstance(content, str) and content:
+                                            observed = time.monotonic()
+                                            timing['upstreamFirstContentMs'] = (observed - upstream_started) * 1000
+                                            timing['gatewayFirstContentMs'] = (observed - request_started) * 1000
+                                    except (ValueError, IndexError, AttributeError, TypeError):
+                                        pass
+                                yield frame
+                            if len(buffer) > 1_048_576:
+                                raise ValueError('Upstream SSE event too large')
+                        if buffer:
+                            if image is not None:
+                                raise ValueError('Incomplete model event')
+                            yield buffer + b'\n\n'
+                        if diagnostic is not None and not timing_sent:
+                            yield timing_event()
+                except (TimeoutError, httpx.HTTPError, ValueError):
                     if diagnostic is not None and not timing_sent:
                         yield timing_event()
-            except (TimeoutError, httpx.HTTPError, ValueError):
-                if diagnostic is not None and not timing_sent:
-                    yield timing_event()
-                yield b'data: {"error":{"message":"The model response was interrupted. Please retry."}}\n\ndata: [DONE]\n\n'
-            finally:
-                try:
-                    await response.aclose()
+                    yield b'data: {"error":{"message":"The model response was interrupted. Please retry."}}\n\ndata: [DONE]\n\n'
                 finally:
-                    admission.release(ticket)
+                    await close_and_release(response, ticket)
 
-        return StreamingResponse(generate(), media_type='text/event-stream', headers={
-            'X-Context-Trimmed': str(trimmed), 'X-Accel-Buffering': 'no',
-            **({'X-Chat-Image-Accepted': 'true'} if image is not None else {}),
-            **diagnostic_headers(),
-            **({'X-Chat-Docs-Mode': '1'} if docs_passages is not None else {}),
-        })
+            return StreamingResponse(generate(), media_type='text/event-stream', headers={
+                'X-Context-Trimmed': str(trimmed), 'X-Accel-Buffering': 'no',
+                **({'X-Chat-Image-Accepted': 'true'} if image is not None else {}),
+                **diagnostic_headers(),
+                **({'X-Chat-Docs-Mode': '1'} if docs_passages is not None else {}),
+            })
+
+        preparation = asyncio.create_task(prepare())
+        try:
+            ready, _ = await asyncio.wait({preparation, disconnect}, return_when=asyncio.FIRST_COMPLETED)
+            if disconnect in ready:
+                preparation.cancel()
+                with anyio.CancelScope(shield=True):
+                    await asyncio.gather(preparation, return_exceptions=True)
+                    await close_and_release(response, ticket)
+                return chat_error('Request cancelled', 499)
+            return await preparation
+        except BaseException:
+            preparation.cancel()
+            with anyio.CancelScope(shield=True):
+                await asyncio.gather(preparation, return_exceptions=True)
+                await close_and_release(response, ticket)
+            raise
+        finally:
+            disconnect.cancel()
+            with anyio.CancelScope(shield=True):
+                await asyncio.gather(disconnect, return_exceptions=True)
+
 
     return app
 
