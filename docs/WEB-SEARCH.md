@@ -35,6 +35,20 @@ reload rather than advertising readiness before verification is complete.
 The launcher never guesses a parser from a Qwen model name. The gateway gates
 each selected alias separately, so verifying an adapter does not verify its base.
 
+The existing manual deployment workflow has explicit `web_search_action`
+choices: `keep` (default, preserves all current web settings), `stage`,
+`enable-base`, `enable-adapter`, and `disable`. Web actions target only the
+existing BF16 profile with its fixed base/adapter aliases and Go gateway. Store
+`TAVILY_API_KEY` as an encrypted secret in the GitHub production deployment
+environment, never a frontend variable. Staging merges the key and allowlisted
+`qwen3_xml` parser into the complete existing Pod environment, keeping gateway
+search and verification false. Verify the exact private API before selecting an
+enable action and supplying its matching `verified_model_alias` assertion.
+Only that alias becomes available. Disable clears enablement/verification while
+retaining the private parser and server key. All actions retain ordinary-chat
+smoke checks and restore both prior image and complete environment on failure.
+No action starts a stopped Pod or changes account quotas, model, ports or disks.
+
 Compatibility verification must cover non-streaming automatic tool selection,
 a named forced `search_web` call, `read_page` with an assistant/tool round trip,
 `parallel_tool_calls:false`, exact tokenizer support for messages **and tools**,

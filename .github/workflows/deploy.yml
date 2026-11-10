@@ -15,6 +15,15 @@ on:
         type: choice
         options: [4bit, bf16]
         default: 4bit
+      web_search_action:
+        description: 'Keep current web settings, stage private parser, enable a verified alias, or disable'
+        type: choice
+        options: [keep, stage, enable-base, enable-adapter, disable]
+        default: keep
+      verified_model_alias:
+        description: 'For enable only: exact alias already verified through the staged private tool API'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -37,6 +46,9 @@ jobs:
           RUNPOD_POD_ID: ${{ vars.RUNPOD_POD_ID }}
           DEPLOY_IMAGE: ${{ inputs.image }}
           DEPLOY_MODEL_PROFILE: ${{ inputs.model_profile }}
+          DEPLOY_WEB_SEARCH_ACTION: ${{ inputs.web_search_action || 'keep' }}
+          DEPLOY_WEB_SEARCH_VERIFIED_ALIAS: ${{ inputs.verified_model_alias }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: python scripts/deploy-runpod.py
       - name: Check metrics separately
         continue-on-error: true
