@@ -12,9 +12,80 @@ spec.loader.exec_module(deploy)
 IMAGE = 'zihan000/qwen-inference@sha256:' + 'a' * 64
 ENV = {'RUNPOD_POD_ID': 'testpod', 'DEPLOY_IMAGE': IMAGE,
        'RUNPOD_API_KEY': 'test-api', 'RUNPOD_CHAT_TOKEN': 'test-chat'}
+BF16_ENV = {**ENV, 'DEPLOY_MODEL_PROFILE': 'bf16', 'RUNPOD_BF16_POD_ID': 'bf16pod',
+            'RUNPOD_BF16_CHAT_TOKEN': 'test-bf16', 'TAVILY_API_KEY': 'fixture-provider-key'}
+POD_ENV = {'MODEL_PROFILE': 'bf16', 'SERVED_MODEL_NAME': 'qwen-bf16',
+           'VLLM_BASE_MODEL_NAME': 'qwen-bf16-base', 'MAX_NUM_SEQS': '2',
+           'MAX_MODEL_LEN': '40960', 'CPU_OFFLOAD_GB': '0', 'JUPYTER_PASSWORD': 'fixture-existing-secret'}
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_web_staging_preserves_all_unrelated_settings_and_never_verifies(self):
+        result = deploy.web_environment(POD_ENV, 'stage', '', 'fixture-provider-key')
+        for key, value in POD_ENV.items():
+            self.assertEqual(result[key], value)
+        self.assertEqual(result['CHAT_WEB_SEARCH_TOOL_PARSER'], 'qwen3_xml')
+        self.assertEqual(result['CHAT_WEB_SEARCH_ENABLED'], 'false')
+        self.assertEqual(result['CHAT_WEB_SEARCH_MODEL_VERIFIED'], 'false')
+        self.assertEqual(result['CHAT_WEB_SEARCH_VERIFIED_MODEL'], '')
+        self.assertEqual(result['TAVILY_API_KEY'], 'fixture-provider-key')
+        self.assertNotIn('TAVILY_API_KEY', POD_ENV)
+
+    def test_web_enable_requires_staging_and_exact_alias_assertion(self):
+        staged = deploy.web_environment(POD_ENV, 'stage', '', 'fixture-provider-key')
+        for action, alias in [('enable-base', 'qwen-bf16-base'), ('enable-adapter', 'qwen-bf16')]:
+            enabled = deploy.web_environment(staged, action, alias, 'fixture-provider-key')
+            self.assertEqual(enabled['CHAT_WEB_SEARCH_VERIFIED_MODEL'], alias)
+            self.assertEqual(enabled['CHAT_WEB_SEARCH_ENABLED'], 'true')
+            self.assertEqual(enabled['CHAT_WEB_SEARCH_MODEL_VERIFIED'], 'true')
+            self.assertEqual(enabled['JUPYTER_PASSWORD'], POD_ENV['JUPYTER_PASSWORD'])
+            with self.assertRaises(ValueError):
+                deploy.web_environment(staged, action, 'unverified', 'fixture-provider-key')
+            with self.assertRaises(ValueError):
+                deploy.web_environment(POD_ENV, action, alias, 'fixture-provider-key')
+
+    def test_web_stage_rejects_wrong_profiles_aliases_missing_key_and_verification(self):
+        for current, alias, key in [({**POD_ENV, 'MODEL_PROFILE': '4bit'}, '', 'fixture-key'),
+                                    ({**POD_ENV, 'SERVED_MODEL_NAME': 'other'}, '', 'fixture-key'),
+                                    ({**POD_ENV, 'CHAT_GATEWAY_IMPLEMENTATION': 'python'}, '', 'fixture-key'),
+                                    (POD_ENV, '', ''), (POD_ENV, 'qwen-bf16-base', 'fixture-key')]:
+            with self.assertRaises(ValueError):
+                deploy.web_environment(current, 'stage', alias, key)
+
+    def test_web_disable_preserves_key_parser_and_ordinary_serving_settings(self):
+        staged = deploy.web_environment(POD_ENV, 'stage', '', 'fixture-provider-key')
+        enabled = deploy.web_environment(staged, 'enable-base', 'qwen-bf16-base', 'fixture-provider-key')
+        disabled = deploy.web_environment(enabled, 'disable', '', '')
+        self.assertEqual(disabled['CHAT_WEB_SEARCH_ENABLED'], 'false')
+        self.assertEqual(disabled['CHAT_WEB_SEARCH_MODEL_VERIFIED'], 'false')
+        self.assertEqual(disabled['CHAT_WEB_SEARCH_VERIFIED_MODEL'], '')
+        self.assertEqual(disabled['TAVILY_API_KEY'], enabled['TAVILY_API_KEY'])
+        self.assertEqual(disabled['CHAT_WEB_SEARCH_TOOL_PARSER'], enabled['CHAT_WEB_SEARCH_TOOL_PARSER'])
+
+    @patch.dict(os.environ, {**BF16_ENV, 'DEPLOY_WEB_SEARCH_ACTION': 'stage'}, clear=True)
+    @patch.object(deploy, 'summary')
+    @patch.object(deploy, 'deploy_image')
+    @patch.object(deploy, 'check_web_capability', side_effect=RuntimeError('capability failed'))
+    @patch.object(deploy, 'api', return_value={'imageName': IMAGE, 'desiredStatus': 'RUNNING', 'env': POD_ENV})
+    def test_web_capability_failure_rolls_back_full_environment_and_image_without_logging_key(self, api, check, apply, summary):
+        with self.assertRaises(RuntimeError):
+            deploy.main()
+        self.assertEqual(apply.call_count, 2)
+        target = apply.call_args_list[0].kwargs['env']
+        self.assertEqual(target['CHAT_WEB_SEARCH_ENABLED'], 'false')
+        self.assertEqual(target['TAVILY_API_KEY'], 'fixture-provider-key')
+        self.assertEqual(apply.call_args_list[1].kwargs['env'], POD_ENV)
+        self.assertEqual(apply.call_args_list[1].args[1], IMAGE)
+        self.assertNotIn('fixture-provider-key', str(summary.call_args_list))
+        self.assertNotIn('fixture-existing-secret', str(summary.call_args_list))
+
+    @patch.dict(os.environ, {**ENV, 'DEPLOY_WEB_SEARCH_ACTION': 'stage'}, clear=True)
+    @patch.object(deploy, 'api')
+    def test_web_actions_cannot_target_the_4bit_pod(self, api):
+        with self.assertRaises(ValueError):
+            deploy.main()
+        api.assert_not_called()
+
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
     @patch.object(deploy, 'urlopen', return_value=BytesIO(b'{"admission":{"maxConcurrentRequests":2,"maxWaitingRequests":6}}'))
     @patch.object(deploy, 'summary')
