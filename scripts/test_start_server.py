@@ -68,7 +68,9 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         }
         for key in ('MODEL_PROFILE', 'MODEL_ID', 'SERVED_MODEL_NAME', 'BF16_ROOT',
                     'VLLM_BASE_MODEL_NAME', 'LORA_ADAPTER_PATH', 'MAX_LORA_RANK',
-                    'CPU_OFFLOAD_GB', 'MAX_NUM_SEQS', 'MAX_MODEL_LEN', 'CHAT_GATEWAY_IMPLEMENTATION'):
+                    'CPU_OFFLOAD_GB', 'MAX_NUM_SEQS', 'MAX_MODEL_LEN', 'CHAT_GATEWAY_IMPLEMENTATION',
+                    'CHAT_WEB_SEARCH_ENABLED', 'CHAT_WEB_SEARCH_MODEL_VERIFIED',
+                    'CHAT_WEB_SEARCH_TOOL_PARSER', 'CHAT_WEB_SEARCH_VERIFIED_MODEL'):
             self.env.pop(key, None)
         self.process = None
 
@@ -150,6 +152,8 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         args = json.loads(args_file.read_text())
         self.assertEqual(args[args.index('--max-num-seqs') + 1], '2')
         self.assertNotIn('--enable-lora', args)
+        self.assertNotIn('--enable-auto-tool-choice', args)
+        self.assertNotIn('--tool-call-parser', args)
         buckets = json.loads(args[args.index('--custom-histogram-buckets') + 1])
         self.assertEqual(set(buckets), {'time_to_first_token'})
         expected = [0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.25, 0.75]
@@ -161,6 +165,23 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.start(METRICS_ENABLED='false', CHAT_ENABLED='true')
         self.assertIn(b'"ready":true', self.ready(self.chat_port, True, '/health'))
         self.closed(self.port)
+
+    def test_web_search_requires_explicit_model_parser_verification(self):
+        self.start(CHAT_WEB_SEARCH_ENABLED='true')
+        output = self.process.communicate(timeout=10)[0]
+        self.assertEqual(self.process.returncode, 1)
+        self.assertIn('explicit model/parser compatibility verification', output)
+        self.closed(8000)
+
+    def test_web_search_uses_only_explicitly_selected_parser(self):
+        args_file = self.root / 'web-vllm-args.json'
+        self.start(METRICS_ENABLED='false', FAKE_ARG_FILE=str(args_file),
+                   CHAT_WEB_SEARCH_ENABLED='true', CHAT_WEB_SEARCH_MODEL_VERIFIED='true',
+                   CHAT_WEB_SEARCH_VERIFIED_MODEL='qwen', CHAT_WEB_SEARCH_TOOL_PARSER='fixture-parser')
+        self.ready(8000)
+        args = json.loads(args_file.read_text())
+        self.assertIn('--enable-auto-tool-choice', args)
+        self.assertEqual(args[args.index('--tool-call-parser') + 1], 'fixture-parser')
 
     def test_single_sequence_override_also_lowers_gateway_concurrency(self):
         args_file = self.root / 'vllm-args.json'

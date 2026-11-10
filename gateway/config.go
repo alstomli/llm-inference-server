@@ -11,10 +11,14 @@ import (
 // Config describes the private ingress contract. Start with DefaultConfig when
 // constructing it directly; ConfigFromEnv preserves the production launcher.
 type Config struct {
-	Token, Upstream, Model, BaseModel, ModelProfile, APIKey string
-	Context, Concurrency, QueueLimit, RateLimit             int
-	UserConcurrency, UserQueueLimit, UserRateLimit          int
-	Diagnostics, ImageInput, RequireUserID                  bool
+	Token, Upstream, Model, BaseModel, ModelProfile, APIKey  string
+	Context, Concurrency, QueueLimit, RateLimit              int
+	UserConcurrency, UserQueueLimit, UserRateLimit           int
+	Diagnostics, ImageInput, RequireUserID                   bool
+	WebSearchEnabled, WebSearchModelVerified                 bool
+	WebSearchAPIKey, WebSearchParser, WebSearchVerifiedModel string
+	// WebProvider permits isolated providers in tests; production uses Tavily.
+	WebProvider WebProvider
 	// Transport permits isolated upstreams in tests and shares one pool in production.
 	Transport http.RoundTripper
 }
@@ -41,6 +45,11 @@ func ConfigFromEnv() (Config, error) {
 	c.APIKey = os.Getenv("VLLM_API_KEY")
 	c.Diagnostics = os.Getenv("CHAT_DIAGNOSTICS_ENABLED") == "true"
 	c.ImageInput = os.Getenv("CHAT_IMAGE_INPUT_ENABLED") == "true"
+	c.WebSearchEnabled = os.Getenv("CHAT_WEB_SEARCH_ENABLED") == "true"
+	c.WebSearchModelVerified = os.Getenv("CHAT_WEB_SEARCH_MODEL_VERIFIED") == "true"
+	c.WebSearchAPIKey = os.Getenv("TAVILY_API_KEY")
+	c.WebSearchParser = os.Getenv("CHAT_WEB_SEARCH_TOOL_PARSER")
+	c.WebSearchVerifiedModel = os.Getenv("CHAT_WEB_SEARCH_VERIFIED_MODEL")
 	if os.Getenv("LORA_ADAPTER_PATH") != "" {
 		c.BaseModel = os.Getenv("VLLM_BASE_MODEL_NAME")
 		if c.BaseModel == "" {
