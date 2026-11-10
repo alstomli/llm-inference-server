@@ -105,6 +105,25 @@ func TestWebSearchReadFinalProtocolAndBudgets(t *testing.T) {
 			t.Error("invalid payload")
 			return
 		}
+		if messages, ok := payload["messages"].([]any); ok {
+			// The exact deployed Qwen template rejects late system messages.
+			// Exercise both tokenizer and inference payloads against that contract.
+			for index, item := range messages {
+				message := item.(map[string]any)
+				if message["role"] == "system" && index != 0 {
+					t.Errorf("Qwen rejects system message at index %d", index)
+				}
+			}
+			if payload["stream"] == true {
+				if len(messages) != 6 {
+					t.Errorf("finalization changed tool transcript length: %d", len(messages))
+				}
+				first := messages[0].(map[string]any)
+				if !strings.Contains(first["content"].(string), "Tool use is finished") {
+					t.Error("final directive missing from initial system")
+				}
+			}
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		if r.URL.Path == "/tokenize" {

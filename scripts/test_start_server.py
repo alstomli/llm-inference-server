@@ -183,6 +183,18 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.assertIn('--enable-auto-tool-choice', args)
         self.assertEqual(args[args.index('--tool-call-parser') + 1], 'fixture-parser')
 
+    def test_parser_can_be_staged_without_advertising_gateway_search(self):
+        args_file = self.root / 'staged-parser-args.json'
+        self.start(METRICS_ENABLED='false', CHAT_ENABLED='true', FAKE_ARG_FILE=str(args_file),
+                   CHAT_WEB_SEARCH_ENABLED='false', CHAT_WEB_SEARCH_MODEL_VERIFIED='false',
+                   CHAT_WEB_SEARCH_TOOL_PARSER='fixture-parser')
+        health = json.loads(self.ready(self.chat_port, True, '/health'))
+        args = json.loads(args_file.read_text())
+        self.assertIn('--enable-auto-tool-choice', args)
+        self.assertEqual(args[args.index('--tool-call-parser') + 1], 'fixture-parser')
+        self.assertFalse(health['webSearchAvailable'])
+        self.assertEqual(health['webSearch']['reason'], 'disabled')
+
     def test_single_sequence_override_also_lowers_gateway_concurrency(self):
         args_file = self.root / 'vllm-args.json'
         self.start(METRICS_ENABLED='false', CHAT_ENABLED='true', MAX_NUM_SEQS='1', FAKE_ARG_FILE=str(args_file))
