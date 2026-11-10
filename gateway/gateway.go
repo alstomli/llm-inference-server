@@ -28,6 +28,7 @@ type Gateway struct {
 	cfg       Config
 	client    *http.Client
 	admission *Admission
+	web       WebProvider
 }
 
 func New(c Config) (*Gateway, error) {
@@ -53,7 +54,12 @@ func New(c Config) (*Gateway, error) {
 		transport = &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ForceAttemptHTTP2: true, MaxIdleConns: 16, MaxIdleConnsPerHost: 8, MaxConnsPerHost: 12, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 5 * time.Second, ExpectContinueTimeout: time.Second, DisableCompression: true}
 	}
 	c.Upstream = strings.TrimRight(c.Upstream, "/")
-	return &Gateway{c, &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, a}, nil
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	provider := c.WebProvider
+	if provider == nil && c.WebSearchAPIKey != "" {
+		provider = &tavilyProvider{client: client, key: c.WebSearchAPIKey, endpoint: "https://api.tavily.com"}
+	}
+	return &Gateway{cfg: c, client: client, admission: a, web: provider}, nil
 }
 func (g *Gateway) Close() { g.client.CloseIdleConnections() }
 func randomHex(n int) string {
@@ -217,6 +223,13 @@ func (g *Gateway) health(w http.ResponseWriter, r *http.Request) {
 		diagnosticsVersion = 1
 	}
 	result := map[string]any{"ready": true, "model": g.cfg.Model, "settingsVersion": 1, "docsModeVersion": 1, "accountQuotaVersion": 1, "accountQuotasEnforced": g.cfg.RequireUserID, "adapterToggleVersion": adapterVersion, "adapterToggleAvailable": adapter, "diagnosticsVersion": diagnosticsVersion, "admission": g.admission.snapshot(), "limits": limits}
+	result["webSearchVersion"] = 1
+	result["webSearchAvailable"] = g.webReason(g.cfg.Model) == "ready"
+	webModels := []any{map[string]any{"model": g.cfg.Model, "useAdapter": g.cfg.BaseModel != "", "available": g.webReason(g.cfg.Model) == "ready", "reason": g.webReason(g.cfg.Model)}}
+	if g.cfg.BaseModel != "" {
+		webModels = append(webModels, map[string]any{"model": g.cfg.BaseModel, "useAdapter": false, "available": g.webReason(g.cfg.BaseModel) == "ready", "reason": g.webReason(g.cfg.BaseModel)})
+	}
+	result["webSearch"] = map[string]any{"provider": "tavily", "reason": g.webReason(g.cfg.Model), "models": webModels, "limits": map[string]int{"searches": 2, "pages": 3, "modelCalls": 5, "evidenceTokens": 6000, "pageTokens": 1500, "timeoutSeconds": 240}}
 	if g.cfg.ModelProfile == "bf16" && g.cfg.ImageInput {
 		result["imageInputVersion"] = 1
 		result["imageInput"] = map[string]any{"maxBytes": MaxImageBytes, "maxDimension": MaxImageDimension, "mimeTypes": []string{"image/jpeg", "image/png", "image/webp"}}
@@ -340,6 +353,21 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 	if g.cfg.BaseModel != "" && !s.adapter {
 		selectedModel = g.cfg.BaseModel
 	}
+	webMode, e := validateWebSearch(value["webSearch"], value)
+	if e != nil {
+		s.fail(400, "Invalid web search request", "web_invalid", 0)
+		return
+	}
+	if webMode != "off" {
+		if hasImage || hasDocs {
+			s.fail(400, "Web search requires a text-only chat without Docs mode.", "web_incompatible", 0)
+			return
+		}
+		if g.webReason(selectedModel) != "ready" {
+			s.fail(503, "Web search is unavailable for this model.", "web_unavailable", 0)
+			return
+		}
+	}
 	if s.diagnostic != nil {
 		s.diagnostic["model"] = selectedModel
 	}
@@ -373,7 +401,11 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		docsPassageOrder(raw, passages)
 		messages[len(messages)-1].Content = docsContent(messages[len(messages)-1].Content.(string), passages)
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(settings.ints["timeoutSeconds"])*time.Second)
+	timeout := settings.ints["timeoutSeconds"]
+	if webMode != "off" {
+		timeout = min(timeout, 240)
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeout)*time.Second)
 	defer cancel()
 	ticket, rejection, retry := g.admission.reserve(user)
 	if ticket == nil {
@@ -410,6 +442,10 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	contextStarted := time.Now()
+	if webMode != "off" {
+		s.webChat(ctx, selectedModel, webMode, messages, maximum, temperature, settings)
+		return
+	}
 	trimmed := 0
 	var conversation []Message
 	for {

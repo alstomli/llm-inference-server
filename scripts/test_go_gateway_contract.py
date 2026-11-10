@@ -315,7 +315,14 @@ class GatewayContractTests(unittest.TestCase):
     def test_health_auth_and_route_isolation(self):
         with self.pair() as pair:
             health = [gateway.request('/health', method='GET') for gateway in pair]
-            self.assertEqual(json.loads(health[0][2]), json.loads(health[1][2]))
+            legacy_health = json.loads(health[0][2])
+            go_health = json.loads(health[1][2])
+            self.assertEqual(go_health.pop('webSearchVersion'), 1)
+            self.assertFalse(go_health.pop('webSearchAvailable'))
+            web_capability = go_health.pop('webSearch')
+            self.assertEqual(web_capability['reason'], 'disabled')
+            self.assertTrue(all(not model['available'] for model in web_capability['models']))
+            self.assertEqual(legacy_health, go_health)
             self.assertTrue(json.loads(health[1][2])['accountQuotasEnforced'])
             self.same(pair, headers=[('Authorization', 'Bearer wrong')], status=401)
             self.same(pair, headers=[('Authorization', None)], status=401)
