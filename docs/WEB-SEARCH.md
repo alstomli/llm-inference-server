@@ -69,6 +69,10 @@ synthesis therefore updates that initial system instruction and preserves all
 assistant/tool turns. Verification against vLLM 0.32.0 confirmed that exact
 gateway tool schemas increase tokenizer counts, JSON-string function arguments
 are normalized for the assistant/tool template, and later system messages fail.
+Its named function choice returns a complete structured tool call with finish
+reason `stop`; the gateway accepts either `stop` or `tool_calls` only with one
+well-formed, allowlisted structured call and strictly valid arguments. A `length`
+finish, multiple calls, malformed arguments or raw text never authorize a tool.
 
 ## API version 1
 

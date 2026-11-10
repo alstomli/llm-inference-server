@@ -151,7 +151,9 @@ func TestWebSearchReadFinalProtocolAndBudgets(t *testing.T) {
 		plannerUsed += 10
 		switch inference {
 		case 1:
-			json.NewEncoder(w).Encode(toolFixture("search_web", `{"query":"public facts"}`, 10))
+			fixture := toolFixture("search_web", `{"query":"public facts"}`, 10).(map[string]any)
+			fixture["choices"].([]any)[0].(map[string]any)["finish_reason"] = "stop"
+			json.NewEncoder(w).Encode(fixture)
 		case 2:
 			json.NewEncoder(w).Encode(toolFixture("read_page", `{"sourceId":"S1"}`, 10))
 		default:
@@ -245,6 +247,47 @@ func TestWebFinalPrematureEOFAndUnexpectedTools(t *testing.T) {
 		if !strings.Contains(w.Body.String(), `"outcome":"failed"`) || strings.Contains(w.Body.String(), `"outcome":"completed"`) {
 			t.Fatal(w.Body.String())
 		}
+	}
+}
+
+func TestWebStructuredCallFinishCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		name, finish, tool, args string
+		calls                    int
+		want                     bool
+	}{
+		{"vllm named stop", "stop", "search_web", `{"query":"example domain"}`, 1, true},
+		{"auto tool calls", "tool_calls", "read_page", `{"sourceId":"S1"}`, 1, true},
+		{"truncated call", "length", "search_web", `{"query":"example"}`, 1, false},
+		{"malformed stop", "stop", "search_web", `{"query":`, 1, false},
+		{"extra arguments", "stop", "search_web", `{"query":"example","url":"https://example.com"}`, 1, false},
+		{"wrong argument type", "stop", "search_web", `{"query":1}`, 1, false},
+		{"unknown function", "stop", "execute_code", `{"query":"example"}`, 1, false},
+		{"multiple stop calls", "stop", "search_web", `{"query":"example"}`, 2, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := toolFixture(tc.tool, tc.args, 27).(map[string]any)
+			choice := raw["choices"].([]any)[0].(map[string]any)
+			choice["finish_reason"] = tc.finish
+			message := choice["message"].(map[string]any)
+			calls := message["tool_calls"].([]any)
+			if tc.calls == 2 {
+				message["tool_calls"] = append(calls, calls[0])
+			}
+			_, err := parseWebAssistant(raw)
+			if (err == nil) != tc.want {
+				t.Fatalf("accepted=%v want=%v error=%v", err == nil, tc.want, err)
+			}
+		})
+	}
+	if result, err := parseWebAssistant(stopFixture(10)); err != nil || len(result.ToolCalls) != 0 {
+		t.Fatal("normal stop changed", err)
+	}
+	raw := stopFixture(10).(map[string]any)
+	message := raw["choices"].([]any)[0].(map[string]any)["message"].(map[string]any)
+	message["content"] = `{"name":"search_web","arguments":{"query":"example"}}`
+	if result, err := parseWebAssistant(raw); err != nil || len(result.ToolCalls) != 0 {
+		t.Fatal("raw content authorized a tool", err)
 	}
 }
 
