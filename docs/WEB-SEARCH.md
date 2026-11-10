@@ -25,9 +25,15 @@ Enable only after verifying the exact served alias with:
 - `CHAT_GATEWAY_IMPLEMENTATION=go` (the existing default)
 
 The launcher adds `--enable-auto-tool-choice` and the explicitly selected
-`--tool-call-parser` only when enabled and verification settings are present.
-It never guesses a parser from a Qwen model name. The gateway gates each selected
-alias separately, so verifying an adapter does not verify its base model.
+`--tool-call-parser` when `CHAT_WEB_SEARCH_TOOL_PARSER` is nonempty. This permits
+private parser/API verification with `CHAT_WEB_SEARCH_ENABLED=false` and
+`CHAT_WEB_SEARCH_MODEL_VERIFIED=false`; gateway health still reports disabled
+and chat cannot execute search. Only enable the gateway and set verification
+flags after the exact alias passes the checks below. Keep the provider key on
+the server. If applying configuration resets the container, allow for model
+reload rather than advertising readiness before verification is complete.
+The launcher never guesses a parser from a Qwen model name. The gateway gates
+each selected alias separately, so verifying an adapter does not verify its base.
 
 Compatibility verification must cover non-streaming automatic tool selection,
 a named forced `search_web` call, `read_page` with an assistant/tool round trip,
@@ -43,6 +49,12 @@ for rollout. Verify malformed calls, provider failure, empty results, context
 exhaustion, output caps, stop/disconnect and queue cancellation. Record evidence
 before setting verification flags. Verification is an operator assertion, not a
 runtime proof: health does not make paid search or production generation probes.
+
+The deployed Qwen template accepts a system message only at the start. Final
+synthesis therefore updates that initial system instruction and preserves all
+assistant/tool turns. Verification against vLLM 0.32.0 confirmed that exact
+gateway tool schemas increase tokenizer counts, JSON-string function arguments
+are normalized for the assistant/tool template, and later system messages fail.
 
 ## API version 1
 

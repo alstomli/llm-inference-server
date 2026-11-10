@@ -68,8 +68,12 @@ if [[ -n "$lora_module" ]]; then
   args+=(--enable-lora --max-lora-rank "${MAX_LORA_RANK:-8}" --lora-modules "$lora_module")
 fi
 
-# Opt-in only after the exact served alias, template and parser have passed
-# search/read/final-stream verification. No parser is guessed from model names.
+# An explicitly selected parser can be staged while gateway web search remains
+# disabled, allowing private model/API verification before advertising readiness.
+# No parser is guessed from model names and default serving flags stay unchanged.
+if [[ -n "${CHAT_WEB_SEARCH_TOOL_PARSER:-}" ]]; then
+  args+=(--enable-auto-tool-choice --tool-call-parser "$CHAT_WEB_SEARCH_TOOL_PARSER")
+fi
 if [[ "${CHAT_WEB_SEARCH_ENABLED:-false}" == true ]]; then
   [[ "${CHAT_WEB_SEARCH_MODEL_VERIFIED:-false}" == true && -n "${CHAT_WEB_SEARCH_TOOL_PARSER:-}" && -n "${CHAT_WEB_SEARCH_VERIFIED_MODEL:-}" ]] || {
     echo 'Web search requires explicit model/parser compatibility verification.' >&2
@@ -79,7 +83,6 @@ if [[ "${CHAT_WEB_SEARCH_ENABLED:-false}" == true ]]; then
     echo 'Web search requires the Go chat gateway.' >&2
     exit 1
   }
-  args+=(--enable-auto-tool-choice --tool-call-parser "$CHAT_WEB_SEARCH_TOOL_PARSER")
 fi
 
 start_model() {

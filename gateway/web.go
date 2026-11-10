@@ -483,7 +483,10 @@ func (s *chatState) webChat(ctx context.Context, model, mode string, messages []
 		return
 	}
 	run.workDeadline = time.Time{}
-	run.conversation = append(run.conversation, Message{"system", "Tool use is finished. Give the final answer now from available evidence. If search or extraction failed or yielded no results, explicitly state that limitation. Cite only the current sourceIds using [S1]."})
+	// Qwen's deployed template permits a system message only at index zero.
+	// Keep the assistant/tool transcript intact and add the final directive to
+	// that original system message rather than adding a later system turn.
+	run.conversation[0] = Message{"system", webSystem + "\n\nTool use is finished. Give the final answer now from available evidence. If search or extraction failed or yielded no results, explicitly state that limitation. Cite only the current sourceIds using [S1]."}
 	if err := run.fit(false); err != nil {
 		run.fail("context_limit")
 		return
