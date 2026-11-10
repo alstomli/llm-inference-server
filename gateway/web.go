@@ -212,8 +212,14 @@ func parseWebAssistant(raw any) (webAssistant, error) {
 	}
 	if len(result.ToolCalls) > 0 {
 		call := result.ToolCalls[0]
-		if choice.FinishReason != "tool_calls" || call.Type != "function" || len(call.ID) < 1 || len(call.ID) > 128 || len(call.Function.Arguments) > 4096 {
+		// vLLM 0.32 named function choice returns a complete structured call
+		// with finish_reason="stop". Both complete finishes are valid; a token
+		// limit or malformed/raw call must never authorize tool execution.
+		if (choice.FinishReason != "tool_calls" && choice.FinishReason != "stop") || call.Type != "function" || len(call.ID) < 1 || len(call.ID) > 128 || len(call.Function.Arguments) > 4096 {
 			return result, errors.New("invalid tool response")
+		}
+		if _, err := webArguments(call); err != nil {
+			return result, err
 		}
 	} else if choice.FinishReason != "stop" {
 		return result, errors.New("incomplete tool response")
@@ -225,7 +231,7 @@ func parseWebAssistant(raw any) (webAssistant, error) {
 	}
 	return result, nil
 }
-func (run *webRun) tool(call webToolCall) (any, error) {
+func webArguments(call webToolCall) (map[string]any, error) {
 	args, err := decodeJSON([]byte(call.Function.Arguments))
 	if err != nil {
 		return nil, errors.New("invalid tool arguments")
@@ -240,6 +246,28 @@ func (run *webRun) tool(call webToolCall) (any, error) {
 		if !ok || blank(query) || utf16Len(query) > 512 {
 			return nil, errors.New("invalid search query")
 		}
+	case "read_page":
+		id, ok := m["sourceId"].(string)
+		if !ok || len(id) < 2 || len(id) > 4 || id[0] != 'S' || id[1] < '1' || id[1] > '9' {
+			return nil, errors.New("invalid source ID")
+		}
+		if n, err := strconv.Atoi(id[1:]); err != nil || n < 1 || n > 999 {
+			return nil, errors.New("invalid source ID")
+		}
+	default:
+		return nil, errors.New("unknown web tool")
+	}
+	return m, nil
+}
+
+func (run *webRun) tool(call webToolCall) (any, error) {
+	m, err := webArguments(call)
+	if err != nil {
+		return nil, err
+	}
+	switch call.Function.Name {
+	case "search_web":
+		query := m["query"].(string)
 		if run.searches >= 2 || run.evidence >= 6000 {
 			return map[string]string{"error": "Search or evidence limit reached; answer from existing evidence."}, nil
 		}
@@ -300,10 +328,7 @@ func (run *webRun) tool(call webToolCall) (any, error) {
 		}
 		return map[string]any{"results": evidence}, nil
 	case "read_page":
-		id, ok := m["sourceId"].(string)
-		if !ok {
-			return nil, errors.New("invalid source ID")
-		}
+		id := m["sourceId"].(string)
 		index := -1
 		for i, source := range run.sources {
 			if source.SourceID == id {
