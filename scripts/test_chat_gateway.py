@@ -94,7 +94,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             if request.url.path == '/v1/models':
                 self.model_requests += 1
                 return httpx.Response(200, json={'data': self.model_cards if self.model_cards is not None
-                                                 else [{'id': 'qwen', 'max_model_len': self.model_context}]})
+                                                 else [{'id': 'qwen-bf16', 'max_model_len': self.model_context}]})
             body = json.loads(request.content)
             if request.url.path == '/tokenize':
                 self.tokenizer_requests += 1
@@ -266,7 +266,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
                         finally:
                             cancelled.set()
                     if request.url.path == '/v1/models':
-                        return httpx.Response(200, json={'data': [{'id': 'qwen', 'max_model_len': 40960}]})
+                        return httpx.Response(200, json={'data': [{'id': 'qwen-bf16', 'max_model_len': 40960}]})
                     return httpx.Response(200, json={'count': 10})
 
                 app = gateway.create_app(TOKEN, transport=httpx.MockTransport(upstream))
@@ -300,7 +300,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
 
         async def upstream(request):
             if request.url.path == '/v1/models':
-                return httpx.Response(200, json={'data': [{'id': 'qwen', 'max_model_len': 40960}]})
+                return httpx.Response(200, json={'data': [{'id': 'qwen-bf16', 'max_model_len': 40960}]})
             if request.url.path == '/tokenize':
                 return httpx.Response(200, json={'count': 10})
             return httpx.Response(200, stream=SlowClose())
@@ -346,7 +346,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
 
         async def upstream(request):
             if request.url.path == '/v1/models':
-                return httpx.Response(200, json={'data': [{'id': 'qwen', 'max_model_len': 40960}]})
+                return httpx.Response(200, json={'data': [{'id': 'qwen-bf16', 'max_model_len': 40960}]})
             if request.url.path == '/tokenize':
                 return httpx.Response(200, json={'count': 10})
             return httpx.Response(500, stream=SlowErrorClose())
@@ -425,12 +425,21 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url='http://test')
 
     async def enable_adapter_toggle(self, **options):
-        self.model_cards = [{'id': 'qwen-base', 'max_model_len': 40960}, {'id': 'qwen', 'parent': 'qwen-base'}]
-        await self.configure(base_model='qwen-base', **options)
+        self.model_cards = [{'id': 'qwen-bf16-base', 'max_model_len': 40960}, {'id': 'qwen-bf16', 'parent': 'qwen-bf16-base'}]
+        await self.configure(base_model='qwen-bf16-base', **options)
+
+    async def test_bf16_is_default_and_retired_profiles_fail_before_upstream(self):
+        health = (await self.client.get('/health', headers=user_auth())).json()
+        self.assertEqual(health['model'], 'qwen-bf16')
+        before = (self.model_requests, self.tokenizer_requests, len(self.forwarded))
+        for profile in ('4bit', 'unknown', '', None):
+            with self.subTest(profile=profile), self.assertRaises(ValueError):
+                gateway.create_app(TOKEN, model_profile=profile, transport=self.transport)
+        self.assertEqual((self.model_requests, self.tokenizer_requests, len(self.forwarded)), before)
 
     async def test_image_input_requires_bf16_and_opt_in(self):
         image = image_uri()
-        for profile, enabled in [('4bit', False), ('4bit', True), ('bf16', False), ('bf16', True)]:
+        for profile, enabled in [('bf16', False), ('bf16', True)]:
             await self.configure(model_profile=profile, image_input_enabled=enabled)
             health = (await self.client.get('/health', headers=user_auth())).json()
             if profile == 'bf16' and enabled:
@@ -484,11 +493,11 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.headers.get('X-Chat-Image-Accepted'), 'true')
             self.assertEqual(response.headers.get('X-Chat-Adapter-Enabled'), 'false')
-            self.assertEqual(self.tokenizer_models[-2:], ['qwen-base', 'qwen-base'])
+            self.assertEqual(self.tokenizer_models[-2:], ['qwen-bf16-base', 'qwen-bf16-base'])
             parts = [{'type': 'text', 'text': 'What is pictured?'}, {'type': 'image_url', 'image_url': {'url': image}}]
             self.assertEqual(self.tokenized[-2]['messages'][-1]['content'], parts)
             self.assertEqual(self.tokenized[-2]['messages'][1:-1], messages[:-1])
-            self.assertEqual(self.forwarded[-1]['model'], 'qwen-base')
+            self.assertEqual(self.forwarded[-1]['model'], 'qwen-bf16-base')
             self.assertEqual(self.forwarded[-1]['messages'], self.tokenized[-1]['messages'])
             self.assertEqual(self.forwarded[-1]['messages'][-1]['content'], parts)
             self.assertIn('cache_salt', self.forwarded[-1])
@@ -518,7 +527,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         health = (await self.client.get('/health', headers=user_auth())).json()
         self.assertTrue(health['adapterToggleAvailable'])
         self.assertEqual(health['adapterToggleVersion'], 1)
-        for enabled, alias in [(True, 'qwen'), (False, 'qwen-base'), (True, 'qwen')]:
+        for enabled, alias in [(True, 'qwen-bf16'), (False, 'qwen-bf16-base'), (True, 'qwen-bf16')]:
             response = await self.diagnostic_send(useAdapter=enabled, model='attacker-model')
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.headers['X-Chat-Adapter-Enabled'], str(enabled).lower())
@@ -545,30 +554,30 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         try:
             await self.until(lambda: len(self.forwarded) == 2)
             self.assertEqual(len(self.app.state.admission.active), 2)
-            self.assertEqual({body['model'] for body in self.forwarded}, {'qwen', 'qwen-base'})
+            self.assertEqual({body['model'] for body in self.forwarded}, {'qwen-bf16', 'qwen-bf16-base'})
         finally:
             self.release.set()
             await asyncio.gather(*tasks)
 
     async def test_adapter_inherits_only_its_named_base_capacity_and_routes_to_adapter(self):
         self.model_cards = [{'id': 'unrelated', 'max_model_len': 40960},
-                            {'id': 'qwen-base', 'max_model_len': 8192},
-                            {'id': 'qwen', 'parent': 'qwen-base', 'max_model_len': None}]
+                            {'id': 'qwen-bf16-base', 'max_model_len': 8192},
+                            {'id': 'qwen-bf16', 'parent': 'qwen-bf16-base', 'max_model_len': None}]
         health = (await self.client.get('/health', headers=user_auth())).json()
         self.assertTrue(health['ready'])
-        self.assertEqual(health['model'], 'qwen')
+        self.assertEqual(health['model'], 'qwen-bf16')
         self.assertEqual(health['limits']['contextTokens'], 8192)
         settings = {**gateway.SETTINGS_DEFAULT, 'contextTokens': 8192, 'outputTokens': 128}
         self.assertEqual((await self.send(settings=settings, max_tokens=128)).status_code, 200)
-        self.assertEqual(self.forwarded[-1]['model'], 'qwen')
-        self.assertEqual(self.tokenizer_models[-1], 'qwen')
+        self.assertEqual(self.forwarded[-1]['model'], 'qwen-bf16')
+        self.assertEqual(self.tokenizer_models[-1], 'qwen-bf16')
         self.assertEqual((await self.send()).status_code, 400)
 
     async def test_adapter_missing_or_invalid_base_capacity_fails_closed(self):
         for cards in ([{'id': 'other', 'max_model_len': 40960}],
-                      [{'id': 'qwen', 'parent': 'missing'}, {'id': 'other', 'max_model_len': 40960}],
-                      [{'id': 'qwen', 'parent': 'base'}, {'id': 'base', 'max_model_len': '40960'}],
-                      [{'id': 'qwen', 'parent': 'base', 'max_model_len': 0}, {'id': 'base', 'max_model_len': 40960}]):
+                      [{'id': 'qwen-bf16', 'parent': 'missing'}, {'id': 'other', 'max_model_len': 40960}],
+                      [{'id': 'qwen-bf16', 'parent': 'base'}, {'id': 'base', 'max_model_len': '40960'}],
+                      [{'id': 'qwen-bf16', 'parent': 'base', 'max_model_len': 0}, {'id': 'base', 'max_model_len': 40960}]):
             with self.subTest(cards=cards):
                 self.model_cards = cards
                 self.assertEqual((await self.client.get('/health', headers=user_auth())).status_code, 503)
@@ -600,7 +609,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.headers['X-Context-Trimmed'], '2')
         self.assertIn(b'[DONE]', response.content)
         actual = self.forwarded[-1]
-        self.assertEqual(actual['model'], 'qwen')
+        self.assertEqual(actual['model'], 'qwen-bf16')
         self.assertEqual(actual['messages'][0]['role'], 'system')
         self.assertEqual(actual['messages'][-1]['content'], 'new')
         self.assertEqual(actual['chat_template_kwargs'], {'enable_thinking': False})
@@ -627,8 +636,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         before, after = self.tokenized
         generated = self.forwarded[-1]
         self.assertEqual(after['messages'], generated['messages'])
-        self.assertEqual(after['model'], 'qwen-base')
-        self.assertEqual(generated['model'], 'qwen-base')
+        self.assertEqual(after['model'], 'qwen-bf16-base')
+        self.assertEqual(generated['model'], 'qwen-bf16-base')
         self.assertEqual(after['chat_template_kwargs'], generated['chat_template_kwargs'])
         self.assertEqual(before['messages'][1:-1], messages[:-1])
         self.assertEqual(after['messages'], [before['messages'][0], before['messages'][-1]])

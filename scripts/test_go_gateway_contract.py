@@ -101,10 +101,10 @@ class ModelHandler(BaseHTTPRequestHandler):
             return self.wait_for_disconnect()
         if self.server.mode == 'models-error':
             return self.reply({'error': 'SECRET upstream detail'}, 500)
-        cards = [{'id': 'qwen', 'max_model_len': self.server.capacity}]
+        cards = [{'id': 'qwen-bf16', 'max_model_len': self.server.capacity}]
         if self.server.adapter:
-            cards = [{'id': 'qwen-base', 'max_model_len': self.server.capacity},
-                     {'id': 'qwen', 'parent': 'wrong' if self.server.mode == 'bad-lineage' else 'qwen-base'}]
+            cards = [{'id': 'qwen-bf16-base', 'max_model_len': self.server.capacity},
+                     {'id': 'qwen-bf16', 'parent': 'wrong' if self.server.mode == 'bad-lineage' else 'qwen-bf16-base'}]
         self.reply({'data': cards})
 
     def do_POST(self):
@@ -166,7 +166,7 @@ def reference_server():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     app = module.create_app(TOKEN, upstream='http://127.0.0.1:' + os.environ['VLLM_PORT'],
-        model='qwen', base_model='qwen-base' if os.environ.get('LORA_ADAPTER_PATH') else None,
+        model='qwen-bf16', base_model='qwen-bf16-base' if os.environ.get('LORA_ADAPTER_PATH') else None,
         model_profile=os.environ['MODEL_PROFILE'], image_input_enabled=os.environ['CHAT_IMAGE_INPUT_ENABLED'] == 'true',
         concurrency=min(2, int(os.environ['MAX_NUM_SEQS'])))
     uvicorn.run(app, host='127.0.0.1', port=int(os.environ['CHAT_PORT']), access_log=False, log_level='error')
@@ -186,12 +186,12 @@ class RunningGateway:
         # Override every gateway input so inherited deployment settings cannot
         # select real services or reveal credentials in this local harness.
         env.update(CHAT_TOKEN_FILE=str(token_path), CHAT_HOST='127.0.0.1', CHAT_PORT=str(self.port),
-            VLLM_PORT=str(self.model.server_port), VLLM_API_KEY=UPSTREAM_KEY, SERVED_MODEL_NAME='qwen',
-            MAX_MODEL_LEN='40960', MAX_NUM_SEQS='2', MODEL_PROFILE='bf16' if image else '4bit',
+            VLLM_PORT=str(self.model.server_port), VLLM_API_KEY=UPSTREAM_KEY, SERVED_MODEL_NAME='qwen-bf16',
+            MAX_MODEL_LEN='40960', MAX_NUM_SEQS='2', MODEL_PROFILE='bf16',
             CHAT_IMAGE_INPUT_ENABLED=str(image).lower(), CHAT_DIAGNOSTICS_ENABLED=str(diagnostics).lower(),
             CHAT_REQUIRE_USER_ID=str(identity).lower(), CHAT_USER_MAX_CONCURRENT='1',
             CHAT_USER_MAX_WAITING='1', CHAT_USER_RATE_LIMIT_PER_MINUTE=str(user_rate),
-            LORA_ADAPTER_PATH='local-fixture-adapter' if adapter else '', VLLM_BASE_MODEL_NAME='qwen-base' if adapter else '')
+            LORA_ADAPTER_PATH='local-fixture-adapter' if adapter else '', VLLM_BASE_MODEL_NAME='qwen-bf16-base' if adapter else '')
         command = ([sys.executable, str(Path(__file__).resolve()), '--reference-server'] if kind == 'python'
                    else [os.environ.get('CHAT_GATEWAY_BINARY', '/usr/local/bin/chat-gateway')])
         self.log = open(Path(self.temp.name) / 'gateway.log', 'w+b')
@@ -374,7 +374,7 @@ class GatewayContractTests(unittest.TestCase):
             self.same(pair, body=request_body('hello <>&\u2028世界', model='attacker', tools=[{}], user='ignored'))
             payloads = [gateway.model.bodies('/v1/chat/completions')[-1] for gateway in pair]
             self.assertEqual(payloads[0], payloads[1])
-            self.assertEqual('qwen', payloads[1]['model'])
+            self.assertEqual('qwen-bf16', payloads[1]['model'])
             self.assertNotIn('tools', payloads[1])
             self.assertEqual(CONTENT + FINISH + DONE, pair[1].request()[2])
             for gateway in pair:
@@ -452,7 +452,7 @@ class GatewayContractTests(unittest.TestCase):
                 results = self.same(pair, body=request_body(useAdapter=enabled))
                 self.assertEqual(str(enabled).lower(), results[1][1]['x-chat-adapter-enabled'])
                 for gateway in pair:
-                    self.assertEqual('qwen' if enabled else 'qwen-base', gateway.model.bodies('/tokenize')[-1]['model'])
+                    self.assertEqual('qwen-bf16' if enabled else 'qwen-bf16-base', gateway.model.bodies('/tokenize')[-1]['model'])
                     self.assertEqual(gateway.model.bodies('/tokenize')[-1]['model'], gateway.model.bodies('/v1/chat/completions')[-1]['model'])
             for gateway in pair:
                 gateway.model.mode = 'bad-lineage'

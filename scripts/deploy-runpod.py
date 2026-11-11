@@ -69,24 +69,21 @@ def deploy_image(path, image, base, env=None):
         time.sleep(3)
     else:
         raise RuntimeError('Runpod did not report the requested image/environment')
-    bf16 = os.environ.get('DEPLOY_MODEL_PROFILE', '4bit') == 'bf16'
-    wait = 3600 if bf16 else 900
+    wait = 3600
     subprocess.run([sys.executable, str(SCRIPT), '--wait', str(wait),
-                    '--expected-model', 'qwen-bf16' if bf16 else 'qwen',
-                    '--read-timeout', '180' if bf16 else '30'], check=True,
-                   timeout=wait + (900 if bf16 else 200))
+                    '--expected-model', 'qwen-bf16',
+                    '--read-timeout', '180'], check=True,
+                   timeout=wait + 900)
 
 
-def deployment_target(env, profile):
-    if profile == 'bf16':
-        pod = env.get('RUNPOD_BF16_POD_ID', '')
-        token = env.get('RUNPOD_BF16_CHAT_TOKEN', '')
-        if not pod or not token:
-            raise ValueError('Configure RUNPOD_BF16_POD_ID and RUNPOD_BF16_CHAT_TOKEN for this environment')
-        if pod == env.get('RUNPOD_POD_ID'):
-            raise ValueError('The BF16 target must be different from the 4bit Pod')
-        return pod, token
-    return env.get('RUNPOD_POD_ID', ''), env.get('RUNPOD_CHAT_TOKEN', '')
+def deployment_target(env, profile='bf16'):
+    if profile != 'bf16':
+        raise ValueError('Only the bf16 deployment profile is supported')
+    pod = env.get('RUNPOD_BF16_POD_ID', '')
+    token = env.get('RUNPOD_BF16_CHAT_TOKEN', '')
+    if not pod or not token:
+        raise ValueError('Configure RUNPOD_BF16_POD_ID and RUNPOD_BF16_CHAT_TOKEN for this environment')
+    return pod, token
 
 
 def web_environment(current, action, verified_alias, key):
@@ -119,7 +116,7 @@ def web_environment(current, action, verified_alias, key):
 
 
 def check_web_capability(base, action, environment):
-    request = Request(base + '/health', headers={'Authorization': 'Bearer ' + os.environ['RUNPOD_CHAT_TOKEN'], 'User-Agent': 'qwen-web-deployment-check/1.0'})
+    request = Request(base + '/health', headers={'Authorization': 'Bearer ' + os.environ['RUNPOD_BF16_CHAT_TOKEN'], 'User-Agent': 'qwen-web-deployment-check/1.0'})
     with urlopen(request, timeout=15) as response:
         health = json.load(response)
     web = health.get('webSearch', {})
@@ -138,32 +135,30 @@ def check_web_capability(base, action, environment):
 
 
 def main():
-    profile = os.environ.get('DEPLOY_MODEL_PROFILE', '4bit')
+    profile = os.environ.get('DEPLOY_MODEL_PROFILE', 'bf16')
     pod, chat_token = deployment_target(os.environ, profile)
     image = os.environ['DEPLOY_IMAGE']
     web_action = os.environ.get('DEPLOY_WEB_SEARCH_ACTION', 'keep')
     verified_alias = os.environ.get('DEPLOY_WEB_SEARCH_VERIFIED_ALIAS', '')
-    if web_action not in ('keep', 'stage', 'enable-base', 'enable-adapter', 'disable') or (web_action != 'keep' and profile != 'bf16'):
+    if web_action not in ('keep', 'stage', 'enable-base', 'enable-adapter', 'disable'):
         raise ValueError('Invalid web action or target profile')
     if web_action == 'keep' and verified_alias:
         raise ValueError('Unchanged web settings must not assert a verified alias')
-    os.environ['RUNPOD_CHAT_TOKEN'] = chat_token
+    os.environ['RUNPOD_BF16_CHAT_TOKEN'] = chat_token
     if not POD.fullmatch(pod) or not IMAGE.fullmatch(image):
         raise ValueError('Invalid Pod ID or image digest')
     first = os.environ.get('DEPLOY_FIRST_OFFICIAL_RELEASE', 'false')
-    if profile not in ('4bit', 'bf16') or first not in ('true', 'false'):
+    if first not in ('true', 'false'):
         raise ValueError('Invalid deployment profile or first-release setting')
-    if first == 'true' and profile != 'bf16':
-        raise ValueError('First official release mode is only for the BF16 migration')
     first_release = first == 'true'
     sequences = os.environ.get('DEPLOY_MAX_NUM_SEQS', '')
     if sequences not in ('', '1', '2'):
         raise ValueError('DEPLOY_MAX_NUM_SEQS must be empty, 1 or 2')
-    for name in ('RUNPOD_API_KEY', 'RUNPOD_CHAT_TOKEN'):
+    for name in ('RUNPOD_API_KEY', 'RUNPOD_BF16_CHAT_TOKEN'):
         if not os.environ.get(name):
             raise ValueError(f'Missing {name}')
     base = f'https://{pod}-8001.proxy.runpod.net'
-    os.environ['RUNPOD_CHAT_URL'] = base
+    os.environ['RUNPOD_BF16_CHAT_URL'] = base
     path = '/pods/' + pod
     current = api('GET', path)
     previous = current.get('imageName')
@@ -171,11 +166,10 @@ def main():
         raise RuntimeError('Cannot safely determine the previous image')
     if current.get('desiredStatus') != 'RUNNING':
         raise RuntimeError('Pod must be running before deployment')
-    if profile == 'bf16':
-        if current.get('env', {}).get('MODEL_PROFILE') != 'bf16':
-            raise RuntimeError('Complete the one-time BF16 Pod profile/entrypoint/ports migration first')
-        if not first_release and not IMAGE.fullmatch(previous):
-            raise RuntimeError('No previous official BF16 image; use first official release mode')
+    if current.get('env', {}).get('MODEL_PROFILE') != 'bf16':
+        raise RuntimeError('Complete the one-time BF16 Pod profile/entrypoint/ports migration first')
+    if not first_release and not IMAGE.fullmatch(previous):
+        raise RuntimeError('No previous official BF16 image; use first official release mode')
     changes_env = bool(sequences or web_action != 'keep')
     previous_env = current.get('env') if changes_env else None
     if changes_env and (not isinstance(previous_env, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in previous_env.items())):
@@ -196,7 +190,7 @@ def main():
             deploy_image(path, image, base, env=target_env)
             if sequences == '2':
                 request = Request(base + '/health', headers={
-                    'Authorization': 'Bearer ' + os.environ['RUNPOD_CHAT_TOKEN'],
+                    'Authorization': 'Bearer ' + os.environ['RUNPOD_BF16_CHAT_TOKEN'],
                     'User-Agent': 'qwen-chat-deployment-check/1.0',
                 })
                 with urlopen(request, timeout=15) as response:

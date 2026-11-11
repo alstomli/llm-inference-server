@@ -72,6 +72,9 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
                     'CHAT_WEB_SEARCH_ENABLED', 'CHAT_WEB_SEARCH_MODEL_VERIFIED',
                     'CHAT_WEB_SEARCH_TOOL_PARSER', 'CHAT_WEB_SEARCH_VERIFIED_MODEL'):
             self.env.pop(key, None)
+        # Disposable BF16 checkpoint; ordinary tests leave the profile unset to exercise its default.
+        self.env.update(self.bf16_environment())
+        self.env.pop('MODEL_PROFILE', None)
         self.process = None
 
     def tearDown(self):
@@ -177,7 +180,7 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         args_file = self.root / 'web-vllm-args.json'
         self.start(METRICS_ENABLED='false', FAKE_ARG_FILE=str(args_file),
                    CHAT_WEB_SEARCH_ENABLED='true', CHAT_WEB_SEARCH_MODEL_VERIFIED='true',
-                   CHAT_WEB_SEARCH_VERIFIED_MODEL='qwen', CHAT_WEB_SEARCH_TOOL_PARSER='fixture-parser')
+                   CHAT_WEB_SEARCH_VERIFIED_MODEL='qwen-bf16', CHAT_WEB_SEARCH_TOOL_PARSER='fixture-parser')
         self.ready(8000)
         args = json.loads(args_file.read_text())
         self.assertIn('--enable-auto-tool-choice', args)
@@ -239,10 +242,10 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
 
     def bf16_environment(self):
         root = self.root / 'bf16'
-        root.mkdir()
+        root.mkdir(exist_ok=True)
         (root / 'config.json').write_text('{"model_id":"Qwen/Qwen3.8-27B"}')
         source = self.root / 'checkpoint'
-        source.mkdir()
+        source.mkdir(exist_ok=True)
         (source / 'config.json').write_text('{"dtype":"bfloat16"}')
         header = json.dumps({'weight': {'dtype': 'BF16', 'shape': [1], 'data_offsets': [0, 2]}}).encode()
         (source / 'model.safetensors').write_bytes(struct.pack('<Q', len(header)) + header + b'\0\0')
@@ -262,7 +265,7 @@ def hf_hub_download(model_id, filename, revision, local_dir):
     return str(target)
 ''')
         return {'MODEL_PROFILE': 'bf16', 'BF16_ROOT': str(root),
-                'FAKE_CHECKPOINT': str(source), 'PYTHONPATH': str(self.root)}
+                'FAKE_CHECKPOINT': str(source), 'PYTHONPATH': str(self.root) + os.pathsep + os.environ.get('PYTHONPATH', '')}
 
     def test_bf16_profile_stages_original_weights_and_advertises_its_actual_limits(self):
         args_file = self.root / 'vllm-args.json'
@@ -280,6 +283,7 @@ def hf_hub_download(model_id, filename, revision, local_dir):
         self.assertIn('--enable-prefix-caching', args)
         self.assertIn('--enforce-eager', args)
         self.assertNotIn('--language-model-only', args)
+        self.assertNotIn('AWQ', json.dumps(args))
         self.assertNotIn('--enable-lora', args)
         state = json.loads((Path(env['BF16_ROOT']) / 'model-manifest.json').read_text())
         self.assertTrue(state['complete'])
@@ -341,7 +345,7 @@ def hf_hub_download(model_id, filename, revision, local_dir):
     def test_invalid_lora_configuration_refuses_startup(self):
         env = self.bf16_environment()
         adapter = self.lora_adapter(env)
-        for overrides in ({'MODEL_PROFILE': '4bit'}, {'LORA_ADAPTER_PATH': str(self.root / 'missing')},
+        for overrides in ({'LORA_ADAPTER_PATH': str(self.root / 'missing')},
                           {'VLLM_BASE_MODEL_NAME': 'qwen-bf16'}, {'MAX_LORA_RANK': '1'}, {'MAX_LORA_RANK': '4'}):
             with self.subTest(overrides=overrides):
                 settings = {**env, 'LORA_ADAPTER_PATH': adapter, **overrides}
@@ -361,12 +365,17 @@ def hf_hub_download(model_id, filename, revision, local_dir):
         self.closed(8000)
 
     def test_invalid_profile_fails_before_starting_services(self):
-        self.start(MODEL_PROFILE='unknown')
-        output = self.process.communicate(timeout=10)[0]
-        self.assertNotEqual(self.process.returncode, 0)
-        self.assertIn('MODEL_PROFILE must be', output)
-        self.closed(8000)
-        self.closed(self.port)
+        for profile in ('4bit', 'unknown', ''):
+            with self.subTest(profile=profile):
+                args_file = self.root / 'forbidden-model-args.json'
+                self.start(MODEL_PROFILE=profile, FAKE_ARG_FILE=str(args_file))
+                output = self.process.communicate(timeout=10)[0]
+                self.assertNotEqual(self.process.returncode, 0)
+                self.assertIn('MODEL_PROFILE', output)
+                self.assertFalse(args_file.exists(), 'Rejected profile must not invoke a GPU model')
+                self.closed(8000)
+                self.closed(self.port)
+                self.closed(self.chat_port)
 
     def test_bf16_refuses_an_unmounted_workspace(self):
         mountpoint = self.root / 'mountpoint'

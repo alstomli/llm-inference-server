@@ -24,7 +24,7 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{Upstream: "http://127.0.0.1:8000", Model: "qwen", ModelProfile: "4bit", Context: 40960, Concurrency: 2, QueueLimit: 6, RateLimit: 20, UserConcurrency: 1, UserQueueLimit: 1, UserRateLimit: 6, RequireUserID: true}
+	return Config{Upstream: "http://127.0.0.1:8000", Model: "qwen-bf16", ModelProfile: "bf16", Context: 40960, Concurrency: 2, QueueLimit: 6, RateLimit: 20, UserConcurrency: 1, UserQueueLimit: 1, UserRateLimit: 6, RequireUserID: true}
 }
 func envDefault(k, fallback string) string {
 	if v, ok := os.LookupEnv(k); ok {
@@ -34,14 +34,17 @@ func envDefault(k, fallback string) string {
 }
 func ConfigFromEnv() (Config, error) {
 	c := DefaultConfig()
+	c.ModelProfile = envDefault("MODEL_PROFILE", c.ModelProfile)
+	if c.ModelProfile != "bf16" {
+		return c, errors.New("MODEL_PROFILE must be bf16")
+	}
 	raw, e := os.ReadFile(envDefault("CHAT_TOKEN_FILE", "/workspace/chat/chat-token"))
 	if e != nil {
 		return c, errors.New("cannot read chat token file")
 	}
 	c.Token = strings.TrimSpace(string(raw))
-	c.Model = envDefault("SERVED_MODEL_NAME", "qwen")
+	c.Model = envDefault("SERVED_MODEL_NAME", c.Model)
 	c.Upstream = "http://127.0.0.1:" + envDefault("VLLM_PORT", "8000")
-	c.ModelProfile = envDefault("MODEL_PROFILE", "4bit")
 	c.APIKey = os.Getenv("VLLM_API_KEY")
 	c.Diagnostics = os.Getenv("CHAT_DIAGNOSTICS_ENABLED") == "true"
 	c.ImageInput = os.Getenv("CHAT_IMAGE_INPUT_ENABLED") == "true"

@@ -1,5 +1,8 @@
 # BF16 migration to RTX PRO 6000
 
+This guide retains the dated hardware migration evidence. Current releases support
+only BF16; historical multi-model checks below do not define current deployment targets.
+
 The original unquantized checkpoint is served by RTX PRO 6000 Blackwell Server
 Edition Pod `o6f2qoctk798tq`. CPU weight offloading is disabled. The old RTX PRO
 4500 SE Pod `ftntkktzid9f4p` is the retained migration rollback target; it is
@@ -48,20 +51,20 @@ After readiness, authentication, generation and token-latency checks pass:
    files to `https://o6f2qoctk798tq-8001.proxy.runpod.net`; retain its existing
    bearer token. Redeploy/restart those frontend runtimes to load the new URL.
 2. Set GitHub environment `prod` variable `RUNPOD_BF16_POD_ID=o6f2qoctk798tq`.
-   Existing BF16 token and 4bit deployment variables remain unchanged. Future
+   Retain the existing BF16 token. Future
    deploy/rollback workflow runs target the new Pod and preserve its zero-offload
    environment override.
 3. Replace the old BF16 hostname in Prometheus `RUNPOD_METRICS_TARGETS` with
-   `o6f2qoctk798tq-8889.proxy.runpod.net`. Retain the 4bit hostname, credentials,
+   `o6f2qoctk798tq-8889.proxy.runpod.net`. Preserve BF16 credentials,
    startup script, retention settings and `/prometheus` data volume. Redeploy
    Prometheus. The new instance has its own time series; old history is retained.
-4. Verify both current scrape targets and GPU exporters are up, both frontend
-   model status cards are ready, and a real hosted BF16 reply succeeds.
+4. Verify the BF16 scrape target and GPU exporter are up, the frontend
+   model connection is ready, and a real hosted BF16 reply succeeds.
 5. Stop the old BF16 Pod. Keep the Pod definition and global volume; do not
-   terminate it or delete data. The 4bit deployment is not changed.
+   terminate it or delete data.
 
-The UI model name remains `Qwen3.8-27B-bf16`; selecting BF16 now routes to the new
-hardware. Browser conversation selection and per-model settings remain valid.
+The UI model name remains `Qwen3.8-27B-bf16` and routes to the new hardware.
+BF16 conversation metadata and settings remain valid.
 
 ## Rollback
 

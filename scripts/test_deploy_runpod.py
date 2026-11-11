@@ -10,8 +10,9 @@ spec = importlib.util.spec_from_file_location('deploy', Path(__file__).with_name
 deploy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deploy)
 IMAGE = 'zihan000/qwen-inference@sha256:' + 'a' * 64
-ENV = {'RUNPOD_POD_ID': 'testpod', 'DEPLOY_IMAGE': IMAGE,
-       'RUNPOD_API_KEY': 'test-api', 'RUNPOD_CHAT_TOKEN': 'test-chat'}
+PREVIOUS = 'zihan000/qwen-inference@sha256:' + 'b' * 64
+ENV = {'RUNPOD_BF16_POD_ID': 'bf16pod', 'DEPLOY_IMAGE': IMAGE,
+       'RUNPOD_API_KEY': 'test-api', 'RUNPOD_BF16_CHAT_TOKEN': 'test-chat'}
 BF16_ENV = {**ENV, 'DEPLOY_MODEL_PROFILE': 'bf16', 'RUNPOD_BF16_POD_ID': 'bf16pod',
             'RUNPOD_BF16_CHAT_TOKEN': 'test-bf16', 'TAVILY_API_KEY': 'fixture-provider-key'}
 POD_ENV = {'MODEL_PROFILE': 'bf16', 'SERVED_MODEL_NAME': 'qwen-bf16',
@@ -20,6 +21,12 @@ POD_ENV = {'MODEL_PROFILE': 'bf16', 'SERVED_MODEL_NAME': 'qwen-bf16',
 
 
 class DeploymentTests(unittest.TestCase):
+    def setUp(self):
+        # Any test without an explicit HTTP stub must remain strictly offline.
+        network = patch.object(deploy, 'urlopen', side_effect=AssertionError('Unmocked network request'))
+        network.start()
+        self.addCleanup(network.stop)
+
     def test_web_staging_preserves_all_unrelated_settings_and_never_verifies(self):
         result = deploy.web_environment(POD_ENV, 'stage', '', 'fixture-provider-key')
         for key, value in POD_ENV.items():
@@ -79,7 +86,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotIn('fixture-provider-key', str(summary.call_args_list))
         self.assertNotIn('fixture-existing-secret', str(summary.call_args_list))
 
-    @patch.dict(os.environ, {**ENV, 'DEPLOY_WEB_SEARCH_ACTION': 'stage'}, clear=True)
+    @patch.dict(os.environ, {**ENV, 'DEPLOY_MODEL_PROFILE': '4bit', 'DEPLOY_WEB_SEARCH_ACTION': 'stage'}, clear=True)
     @patch.object(deploy, 'api')
     def test_web_actions_cannot_target_the_4bit_pod(self, api):
         with self.assertRaises(ValueError):
@@ -90,11 +97,11 @@ class DeploymentTests(unittest.TestCase):
     @patch.object(deploy, 'urlopen', return_value=BytesIO(b'{"admission":{"maxConcurrentRequests":2,"maxWaitingRequests":6}}'))
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': 'old:1', 'desiredStatus': 'RUNNING', 'env': {'MAX_NUM_SEQS': '1'}})
+    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1'}})
     def test_success_requires_advertised_gateway_capacity(self, api, apply, summary, urlopen):
         deploy.main()
         self.assertEqual(apply.call_count, 1)
-        self.assertEqual(apply.call_args.kwargs['env'], {'MAX_NUM_SEQS': '2'})
+        self.assertEqual(apply.call_args.kwargs['env'], {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '2'})
         self.assertEqual(urlopen.call_args.args[0].get_header('User-agent'), 'qwen-chat-deployment-check/1.0')
         self.assertIn('2 active requests', str(summary.call_args_list))
 
@@ -102,26 +109,26 @@ class DeploymentTests(unittest.TestCase):
     @patch.object(deploy, 'urlopen', return_value=BytesIO(b'{"admission":{"maxConcurrentRequests":1,"maxWaitingRequests":6}}'))
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': 'old:1', 'desiredStatus': 'RUNNING', 'env': {'MAX_NUM_SEQS': '1'}})
+    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1'}})
     def test_wrong_live_capacity_triggers_full_rollback(self, api, apply, summary, urlopen):
         with self.assertRaises(RuntimeError):
             deploy.main()
         self.assertEqual(apply.call_count, 2)
-        self.assertEqual(apply.call_args_list[1].args[1], 'old:1')
-        self.assertEqual(apply.call_args_list[1].kwargs['env'], {'MAX_NUM_SEQS': '1'})
+        self.assertEqual(apply.call_args_list[1].args[1], PREVIOUS)
+        self.assertEqual(apply.call_args_list[1].kwargs['env'], {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1'})
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': 'old:1', 'desiredStatus': 'RUNNING', 'env': {'MAX_NUM_SEQS': '1', 'CHAT_ENABLED': 'true', 'PRIVATE_VALUE': 'test-secret'}})
+    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1', 'CHAT_ENABLED': 'true', 'PRIVATE_VALUE': 'test-secret'}})
     def test_concurrency_failure_restores_image_and_full_environment(self, api, apply, summary):
         apply.side_effect = [RuntimeError('failed'), None]
         with self.assertRaises(RuntimeError):
             deploy.main()
-        old = {'MAX_NUM_SEQS': '1', 'CHAT_ENABLED': 'true', 'PRIVATE_VALUE': 'test-secret'}
+        old = {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1', 'CHAT_ENABLED': 'true', 'PRIVATE_VALUE': 'test-secret'}
         self.assertEqual(apply.call_args_list[0].kwargs['env'], {**old, 'MAX_NUM_SEQS': '2'})
         self.assertEqual(apply.call_args_list[1].kwargs['env'], old)
-        self.assertEqual([c.args[1] for c in apply.call_args_list], [IMAGE, 'old:1'])
+        self.assertEqual([c.args[1] for c in apply.call_args_list], [IMAGE, PREVIOUS])
         self.assertNotIn('test-secret', str(summary.call_args_list))
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '3'}, clear=True)
@@ -133,7 +140,7 @@ class DeploymentTests(unittest.TestCase):
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': 'old:1', 'desiredStatus': 'RUNNING'})
+    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING'})
     def test_missing_environment_is_rejected_without_mutation(self, api, apply):
         with self.assertRaises(RuntimeError):
             deploy.main()
@@ -153,18 +160,18 @@ class DeploymentTests(unittest.TestCase):
     @patch.dict(os.environ, ENV, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': 'old:1', 'desiredStatus': 'RUNNING'})
+    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
     def test_failed_deploy_restores_previous_image(self, api, apply, summary):
         apply.side_effect = [RuntimeError('failed'), None]
         with self.assertRaises(RuntimeError):
             deploy.main()
-        self.assertEqual([call.args[1] for call in apply.call_args_list], [IMAGE, 'old:1'])
+        self.assertEqual([call.args[1] for call in apply.call_args_list], [IMAGE, PREVIOUS])
         self.assertIn('Rollback passed', summary.call_args.args[0])
 
     @patch.dict(os.environ, ENV, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image', side_effect=RuntimeError('failed'))
-    @patch.object(deploy, 'api', return_value={'imageName': 'old:1', 'desiredStatus': 'RUNNING'})
+    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
     def test_failed_rollback_is_reported(self, api, apply, summary):
         with self.assertRaises(RuntimeError):
             deploy.main()
@@ -179,29 +186,34 @@ class DeploymentTests(unittest.TestCase):
 
     @patch.dict(os.environ, ENV, clear=True)
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': 'old:1', 'desiredStatus': 'EXITED'})
+    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'EXITED'})
     def test_stopped_pod_is_not_updated(self, api, apply):
         with self.assertRaises(RuntimeError):
             deploy.main()
         apply.assert_not_called()
 
 
-    def test_bf16_target_never_falls_back_to_the_4bit_connection(self):
-        with self.assertRaises(ValueError):
-            deploy.deployment_target(ENV, 'bf16')
-        same = {**ENV, 'RUNPOD_BF16_POD_ID': ENV['RUNPOD_POD_ID'], 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only'}
-        with self.assertRaises(ValueError):
-            deploy.deployment_target(same, 'bf16')
-        values = {**ENV, 'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only'}
+    def test_bf16_target_never_falls_back_to_generic_connection(self):
+        legacy = {'RUNPOD_POD_ID': 'retiredpod', 'RUNPOD_CHAT_TOKEN': 'retired-token'}
+        for values in (legacy, {**legacy, 'RUNPOD_BF16_POD_ID': 'bf16pod'},
+                       {**legacy, 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only'}):
+            with self.assertRaises(ValueError):
+                deploy.deployment_target(values)
+        values = {**legacy, 'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only'}
+        self.assertEqual(deploy.deployment_target(values), ('bf16pod', 'bf16-only'))
         self.assertEqual(deploy.deployment_target(values, 'bf16'), ('bf16pod', 'bf16-only'))
-        self.assertEqual(deploy.deployment_target(values, '4bit'), (ENV['RUNPOD_POD_ID'], ENV['RUNPOD_CHAT_TOKEN']))
+        for profile in ('4bit', 'unknown', ''):
+            with self.subTest(profile=profile), self.assertRaises(ValueError):
+                deploy.deployment_target(values, profile)
 
-    @patch.dict(os.environ, {**ENV, 'DEPLOY_FIRST_OFFICIAL_RELEASE': 'true'}, clear=True)
     @patch.object(deploy, 'api')
-    def test_first_release_mode_is_rejected_for_4bit_before_api(self, api):
-        with self.assertRaises(ValueError):
-            deploy.main()
-        api.assert_not_called()
+    @patch.object(deploy, 'deploy_image')
+    def test_removed_profiles_fail_before_any_pod_api_or_deployment(self, apply, api):
+        for profile in ('4bit', 'unknown', ''):
+            with self.subTest(profile=profile), patch.dict(os.environ, {**ENV, 'DEPLOY_MODEL_PROFILE': profile}, clear=True):
+                with self.assertRaises(ValueError):
+                    deploy.main()
+        api.assert_not_called(); apply.assert_not_called()
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MODEL_PROFILE': 'bf16',
                             'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only',

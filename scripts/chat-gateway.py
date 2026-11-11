@@ -222,16 +222,18 @@ def validate_docs_passages(passages):
     return passages
 
 
-def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40960, transport=None,
-               diagnostics_enabled=None, concurrency=2, base_model=None, model_profile='4bit', image_input_enabled=False,
+def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', context=40960, transport=None,
+               diagnostics_enabled=None, concurrency=2, base_model=None, model_profile='bf16', image_input_enabled=False,
                require_user_id=None, user_concurrency=None, user_queue_limit=None, user_rate_limit=None):
+    if model_profile != 'bf16':
+        raise ValueError('MODEL_PROFILE must be bf16')
     if base_model is not None and (not isinstance(base_model, str) or not base_model or base_model == model):
         raise ValueError('Base and adapter aliases must be distinct')
     if not isinstance(token, str) or len(token) < 32:
         raise ValueError('A chat token of at least 32 characters is required')
     if diagnostics_enabled is None:
         diagnostics_enabled = os.environ.get('CHAT_DIAGNOSTICS_ENABLED') == 'true'
-    image_input = model_profile == 'bf16' and image_input_enabled is True
+    image_input = image_input_enabled is True
     headers = {}
     if os.environ.get('VLLM_API_KEY'):
         headers['Authorization'] = 'Bearer ' + os.environ['VLLM_API_KEY']
@@ -648,12 +650,12 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen', context=40
 if __name__ == '__main__':
     import uvicorn
     secret = Path(os.environ.get('CHAT_TOKEN_FILE', '/workspace/chat/chat-token')).read_text().strip()
-    app = create_app(secret, model=os.environ.get('SERVED_MODEL_NAME', 'qwen'),
-                     base_model=(os.environ.get('VLLM_BASE_MODEL_NAME') or os.environ.get('SERVED_MODEL_NAME', 'qwen') + '-base') if os.environ.get('LORA_ADAPTER_PATH') else None,
+    app = create_app(secret, model=os.environ.get('SERVED_MODEL_NAME', 'qwen-bf16'),
+                     base_model=(os.environ.get('VLLM_BASE_MODEL_NAME') or os.environ.get('SERVED_MODEL_NAME', 'qwen-bf16') + '-base') if os.environ.get('LORA_ADAPTER_PATH') else None,
                      upstream='http://127.0.0.1:' + os.environ.get('VLLM_PORT', '8000'),
                      context=int(os.environ.get('MAX_MODEL_LEN', '40960')),
                      concurrency=min(2, int(os.environ.get('MAX_NUM_SEQS', '2'))),
-                     model_profile=os.environ.get('MODEL_PROFILE', '4bit'),
+                     model_profile=os.environ.get('MODEL_PROFILE', 'bf16'),
                      image_input_enabled=os.environ.get('CHAT_IMAGE_INPUT_ENABLED') == 'true')
     uvicorn.run(app, host=os.environ.get('CHAT_HOST', '127.0.0.1'),
                 port=int(os.environ.get('CHAT_PORT', '8001')), access_log=False)

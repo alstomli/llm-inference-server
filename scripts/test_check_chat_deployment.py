@@ -28,14 +28,14 @@ class CheckerTests(unittest.TestCase):
             return Response(b'data: {"choices":[{"delta":{"content":"ready"}}]}\n\ndata: [DONE]\n\n')
 
         with patch.object(checker, 'ROOT', Path(__file__).parent / '__quota_checker_test__' / 'server'), \
-                patch.dict(checker.os.environ, {'RUNPOD_CHAT_URL': 'https://fixture.invalid', 'RUNPOD_CHAT_TOKEN': 'x' * 48, **(environment or {})}, clear=True), \
+                patch.dict(checker.os.environ, {'RUNPOD_BF16_CHAT_URL': 'https://fixture.invalid', 'RUNPOD_BF16_CHAT_TOKEN': 'x' * 48, **(environment or {})}, clear=True), \
                 patch('sys.argv', ['check-chat-deployment.py', *arguments]), patch.object(checker, 'urlopen', urlopen), \
                 redirect_stdout(StringIO()), redirect_stderr(StringIO()):
             checker.main()
         return requests
 
     def test_strict_health_then_stable_bounded_service_principal(self):
-        health = {'ready': True, 'model': 'qwen', 'accountQuotaVersion': 1, 'accountQuotasEnforced': True}
+        health = {'ready': True, 'model': 'qwen-bf16', 'accountQuotaVersion': 1, 'accountQuotasEnforced': True}
         requests = self.run_checker(health)
         self.assertEqual(len(requests), 2)
         self.assertIsNone(requests[0].get_header('X-chat-user-id'))
@@ -46,7 +46,19 @@ class CheckerTests(unittest.TestCase):
     def test_old_or_compatibility_health_fails_before_inference(self):
         for fields in [{}, {'accountQuotaVersion': 1, 'accountQuotasEnforced': False}, {'accountQuotaVersion': 2, 'accountQuotasEnforced': True}]:
             with self.subTest(fields=fields), self.assertRaises(AssertionError):
-                self.run_checker({'ready': True, 'model': 'qwen', **fields})
+                self.run_checker({'ready': True, 'model': 'qwen-bf16', **fields})
+
+    def test_removed_connection_cannot_supply_a_missing_bf16_target_or_token(self):
+        for environment in ({'RUNPOD_CHAT_URL': 'https://retired.invalid', 'RUNPOD_CHAT_TOKEN': 'old'},
+                            {'RUNPOD_BF16_CHAT_URL': 'https://fixture.invalid', 'RUNPOD_CHAT_TOKEN': 'old'},
+                            {'RUNPOD_CHAT_URL': 'https://retired.invalid', 'RUNPOD_BF16_CHAT_TOKEN': 'new'}):
+            with self.subTest(environment=environment), \
+                    patch.object(checker, 'ROOT', Path(__file__).parent / '__quota_checker_test__' / 'server'), \
+                    patch.dict(checker.os.environ, environment, clear=True), \
+                    patch('sys.argv', ['check-chat-deployment.py']), patch.object(checker, 'urlopen') as network, \
+                    redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                checker.main()
+            network.assert_not_called()
 
     def test_invalid_identity_fails_before_network(self):
         with self.assertRaises(SystemExit):

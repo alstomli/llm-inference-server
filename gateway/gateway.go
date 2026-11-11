@@ -32,6 +32,9 @@ type Gateway struct {
 }
 
 func New(c Config) (*Gateway, error) {
+	if c.ModelProfile != "bf16" {
+		return nil, errors.New("MODEL_PROFILE must be bf16")
+	}
 	if len([]rune(c.Token)) < 32 {
 		return nil, errors.New("a chat token of at least 32 characters is required")
 	}
@@ -230,7 +233,7 @@ func (g *Gateway) health(w http.ResponseWriter, r *http.Request) {
 		webModels = append(webModels, map[string]any{"model": g.cfg.BaseModel, "useAdapter": false, "available": g.webReason(g.cfg.BaseModel) == "ready", "reason": g.webReason(g.cfg.BaseModel)})
 	}
 	result["webSearch"] = map[string]any{"provider": "tavily", "reason": g.webReason(g.cfg.Model), "models": webModels, "limits": map[string]int{"searches": 2, "pages": 3, "modelCalls": 5, "evidenceTokens": 6000, "pageTokens": 1500, "timeoutSeconds": 240}}
-	if g.cfg.ModelProfile == "bf16" && g.cfg.ImageInput {
+	if g.cfg.ImageInput {
 		result["imageInputVersion"] = 1
 		result["imageInput"] = map[string]any{"maxBytes": MaxImageBytes, "maxDimension": MaxImageDimension, "mimeTypes": []string{"image/jpeg", "image/png", "image/webp"}}
 	}
@@ -337,7 +340,7 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if hasImage && !(g.cfg.ModelProfile == "bf16" && g.cfg.ImageInput) {
+	if hasImage && !g.cfg.ImageInput {
 		s.fail(400, "This model does not accept images.", "image_unsupported", 0)
 		return
 	}

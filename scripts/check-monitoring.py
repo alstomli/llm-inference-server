@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 token_file = ROOT / '.secrets/metrics-token'
 TOKEN = os.environ.get('RUNPOD_METRICS_TOKEN') or (token_file.read_text().strip() if token_file.exists() else '')
-BASE = (os.environ.get('RUNPOD_METRICS_URL') or 'https://rp93m3noz3l9lt-8888.proxy.runpod.net').rstrip('/')
+BASE = (os.environ.get('RUNPOD_METRICS_URL') or '').rstrip('/')
 
 
 def expect_status(path, headers, status):
@@ -22,6 +22,8 @@ def expect_status(path, headers, status):
 
 
 if __name__ == '__main__':
+    if not BASE:
+        raise SystemExit('Set RUNPOD_METRICS_URL to the BF16 metrics relay origin')
     if not TOKEN:
         raise SystemExit('Set RUNPOD_METRICS_TOKEN or provide .secrets/metrics-token')
     expect_status('/metrics', {}, 401)

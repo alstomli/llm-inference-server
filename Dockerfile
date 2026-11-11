@@ -26,6 +26,5 @@ COPY --from=gateway-build /out/chat-gateway /usr/local/bin/chat-gateway
 COPY scripts/validate-lora-adapter.py /usr/local/lib/validate-lora-adapter.py
 COPY deployments/qwen-bf16/prepare_model.py /usr/local/lib/prepare-bf16-model.py
 RUN chmod +x /usr/local/bin/start-server
-ENV HF_HOME=/workspace/huggingface
-ENV VLLM_CACHE_ROOT=/workspace/vllm-cache
+ENV MODEL_PROFILE=bf16
 ENTRYPOINT ["/usr/local/bin/start-server"]
