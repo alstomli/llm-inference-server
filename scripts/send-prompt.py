@@ -16,7 +16,7 @@ PROMPT = (
 )
 
 payload = {
-    'model': 'qwen',
+    'model': 'qwen-bf16',
     'messages': [{'role': 'user', 'content': PROMPT}],
     'max_tokens': 512,
     'temperature': 0.3,

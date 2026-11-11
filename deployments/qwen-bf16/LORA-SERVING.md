@@ -30,7 +30,7 @@ Unsloth serving process or modification to the original weights is needed.
 
 Target Pod: `o6f2qoctk798tq` (RTX PRO 6000). Retain its existing image settings,
 ports, authentication, diagnostics and persistent volume when applying the new
-application image. Preserve the separate 4bit Pod.
+application image. BF16 is the only supported serving profile.
 
 ```dotenv
 MODEL_PROFILE=bf16
@@ -66,8 +66,8 @@ Before services start, `validate-lora-adapter.py` checks the local adapter's
 configuration, base-model path, rank capacity, paired linear LoRA tensor shapes,
 and complete safetensors header/data layout. It does not load the base, read
 every weight value, convert adapter weights, or replace the artifacts. Static
-vLLM loading remains the final compatibility check. Only this BF16 deployment
-mode supports the new setting; the 4bit profile rejects it.
+vLLM loading remains the final compatibility check. The BF16 deployment supports this setting; unsupported serving profiles are
+rejected before startup.
 
 vLLM 0.32's adapter model card has a `parent` but no context ceiling. The gateway
 reads the limit from that exact parent's model card and retains its configured

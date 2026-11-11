@@ -44,7 +44,7 @@ def image_signature(body):
 class Model(BaseHTTPRequestHandler):
     def do_GET(self):
         cards = ([{'id': 'qwen-bf16-base', 'max_model_len': 40960}, {'id': 'qwen-bf16', 'parent': 'qwen-bf16-base'}]
-                 if ADAPTER else [{'id': 'qwen', 'max_model_len': 40960}])
+                 if ADAPTER else [{'id': 'qwen-bf16', 'max_model_len': 40960}])
         data = json.dumps({'data': cards}).encode() if self.path == '/v1/models' else b''
         self.send_response(200); self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
 
@@ -115,11 +115,11 @@ if __name__ == '__main__':
                    'CHAT_HOST': '127.0.0.1' if os.environ.get('CHAT_TEST_FIXTURE_PYTHON') else '0.0.0.0',
                    'CHAT_PORT': os.environ.get('CHAT_FIXTURE_PORT', '8001'),
                    'VLLM_PORT': str(model_port), 'VLLM_API_KEY': '',
-                   'SERVED_MODEL_NAME': 'qwen-bf16' if ADAPTER else 'qwen',
-                   'MODEL_PROFILE': 'bf16' if IMAGE_INPUT else '4bit',
+                   'SERVED_MODEL_NAME': 'qwen-bf16',
+                   'MODEL_PROFILE': 'bf16',
                    'CHAT_IMAGE_INPUT_ENABLED': str(IMAGE_INPUT).lower(),
                    'LORA_ADAPTER_PATH': 'fixture-adapter' if ADAPTER else '',
-                   'VLLM_BASE_MODEL_NAME': 'qwen-bf16-base' if ADAPTER else 'qwen',
+                   'VLLM_BASE_MODEL_NAME': 'qwen-bf16-base' if ADAPTER else 'qwen-bf16',
                    'CHAT_REQUIRE_USER_ID': 'true', 'MAX_MODEL_LEN': '40960',
                    'MAX_NUM_SEQS': '2', 'CHAT_USER_MAX_CONCURRENT': '1',
                    'CHAT_USER_MAX_WAITING': '1', 'CHAT_USER_RATE_LIMIT_PER_MINUTE': '6'}
@@ -143,6 +143,6 @@ if __name__ == '__main__':
     spec = importlib.util.spec_from_file_location('gateway', Path(__file__).with_name('chat-gateway.py'))
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     uvicorn.run(module.create_app(TOKEN, require_user_id=True, upstream=f'http://127.0.0.1:{model_port}',
-        model='qwen-bf16' if ADAPTER else 'qwen', base_model='qwen-bf16-base' if ADAPTER else None,
-        **({'model_profile': 'bf16', 'image_input_enabled': True} if IMAGE_INPUT else {})),
+        model='qwen-bf16', base_model='qwen-bf16-base' if ADAPTER else None,
+        model_profile='bf16', image_input_enabled=IMAGE_INPUT),
         host='127.0.0.1' if os.environ.get('CHAT_TEST_FIXTURE_PYTHON') else '0.0.0.0', port=int(os.environ.get('CHAT_FIXTURE_PORT', '8001')), access_log=False, log_level='warning')

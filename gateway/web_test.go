@@ -345,7 +345,7 @@ func TestWebToolCapsAndEvidenceLimit(t *testing.T) {
 	w := httptest.NewRecorder()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	run := webRun{s: &chatState{gateway: g, w: w}, ctx: ctx, model: "qwen", read: map[string]bool{}, workDeadline: time.Now().Add(time.Minute)}
+	run := webRun{s: &chatState{gateway: g, w: w}, ctx: ctx, model: "qwen-bf16", read: map[string]bool{}, workDeadline: time.Now().Add(time.Minute)}
 	text, e := run.evidenceText(strings.Repeat("e", 8000), 1500)
 	if e != nil || len(text) != 1500 || run.evidence != 1500 {
 		t.Fatalf("%d %d %v", len(text), run.evidence, e)

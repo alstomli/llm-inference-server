@@ -43,9 +43,9 @@ correct token 200 with vLLM/GPU metrics, and an authenticated model route 404.
 The relay returns 503 while vLLM is loading, so Prometheus may report this target
 down until model initialization completes.
 
-Prometheus retains `rp93m3noz3l9lt-8888.proxy.runpod.net` and adds this new target
-under the same `vllm` job. Existing `instance` labels distinguish the Pods and
-preserve their historical series. The Grafana dashboard's Pod variable filters
+Configure the BF16 relay target under the existing `vllm` job; use the current
+endpoint in [the RTX PRO 6000 guide](RTX6000-MIGRATION.md). Historical series
+retain their original `instance` labels independently of active targets. The Grafana dashboard's Pod variable filters
 the existing panels by instance before aggregation. Its Prometheus and Grafana
 changes are documented in their sibling repositories.
 

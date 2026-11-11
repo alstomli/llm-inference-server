@@ -50,7 +50,7 @@ func testGateway(t *testing.T, c Config, h http.Handler) (*Gateway, *httptest.Se
 func basicUpstream(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/v1/models":
-		io.WriteString(w, `{"data":[{"id":"qwen","max_model_len":40960}]}`)
+		io.WriteString(w, `{"data":[{"id":"qwen-bf16","max_model_len":40960}]}`)
 	case "/tokenize":
 		io.WriteString(w, `{"count":10}`)
 	case "/health":

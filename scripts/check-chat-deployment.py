@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--wait', type=int, default=0, help='Maximum readiness wait in seconds')
-    parser.add_argument('--expected-model', default='qwen')
+    parser.add_argument('--expected-model', default='qwen-bf16')
     parser.add_argument('--read-timeout', type=int, default=30)
     parser.add_argument('--user-id', default=os.environ.get('CHAT_CHECK_USER_ID', '00000000-0000-4000-8000-000000000001'),
                         help='Stable trusted smoke-check principal UUID (shares its normal account budget)')
@@ -26,10 +26,10 @@ def main():
         parser.error('read-timeout must be between 1 and 900 seconds')
     local_env = ROOT.parent / 'qwen-chat/.env.local'
     values = dict(line.split('=', 1) for line in local_env.read_text().splitlines() if '=' in line and not line.startswith('#')) if local_env.exists() else {}
-    token = os.environ.get('RUNPOD_CHAT_TOKEN') or values.get('RUNPOD_CHAT_TOKEN')
-    base = os.environ.get('RUNPOD_CHAT_URL') or values.get('RUNPOD_CHAT_URL') or 'https://rp93m3noz3l9lt-8001.proxy.runpod.net'
-    if not token:
-        parser.error('Set RUNPOD_CHAT_TOKEN or configure qwen-chat/.env.local')
+    token = os.environ.get('RUNPOD_BF16_CHAT_TOKEN') or values.get('RUNPOD_BF16_CHAT_TOKEN')
+    base = os.environ.get('RUNPOD_BF16_CHAT_URL') or values.get('RUNPOD_BF16_CHAT_URL')
+    if not token or not base:
+        parser.error('Set RUNPOD_BF16_CHAT_URL and RUNPOD_BF16_CHAT_TOKEN or configure qwen-chat/.env.local')
     base = base.rstrip('/')
     deadline = time.monotonic() + args.wait
 

@@ -9,8 +9,8 @@ The optional [LoRA serving guide](LORA-SERVING.md) describes the prepared startu
 configuration for using a trained adapter through the existing BF16 chatbot
 option. That guide does not assert a completed adapter rollout.
 
-The BF16 Pod's first official release uses the same `zihan000/qwen-inference`
-image and versioned-image/digest workflow as the 4bit Pod. Its image starts from
+The BF16 Pod's first official release uses the `zihan000/qwen-inference`
+image and versioned-image/digest workflow. Its image starts from
 `vllm/vllm-openai:v0.32.0`; application code and Jupyter dependencies are installed
 at image build time. Container startup does not install vLLM or execute the old
 volume bootstrap. The original BF16 weights stay on global volume
@@ -84,27 +84,18 @@ After the frontend browser checks, current RAM was 80,542,801,920 bytes
 (75.01 GiB). The peak, limit, and `memory.events max` count were unchanged,
 and OOM/OOM-kill counts remained zero.
 
-The local frontend at `http://127.0.0.1:3001` subsequently passed actual browser
-checks against both Pods in one conversation: correct 4bit/BF16 replies and
-assistant labels, selector locked during generation, and selected model/labels
-retained after reload. See [frontend PR #7](https://github.com/alstomli/qwen-chat/pull/7).
-Its screenshot is retained in the project workspace at
-`images-in-chat/model-selector-live-two-pods.jpg`.
-
 ## Request diagnostics verified November 3, 2026
 
 Only `CHAT_DIAGNOSTICS_ENABLED=true` was added to the BF16 Pod's persistent
 environment. Its 0.10.1 image, other environment settings, ports, and startup
 configuration were retained. After the restart, the gateway and hosted frontend
-both reported the BF16 model ready with diagnostics version 1; the hosted
-frontend also reported diagnostics available for the 4bit model. Context remained
+both reported the BF16 model ready with diagnostics version 1. Context remained
 40,960 tokens, with two active and six waiting slots. The frontend server's
 own diagnostics gate was already enabled on the hosted deployment; the local
 frontend's setting was not changed.
 
-Actual hosted browser checks confirmed both model controls were enabled and
-independent: the 4bit diagnostic checkbox was unchecked while the BF16 checkbox
-was checked. Exactly one opted-in BF16 request completed through the hosted
+Actual hosted browser checks enabled the BF16 diagnostics control. Exactly one
+opted-in BF16 request completed through the hosted
 frontend with model `qwen-bf16` and finish reason `stop`. Its diagnostic record
 reported 47 input tokens before and after fitting, 47 actual vLLM prompt tokens,
 and seven output tokens, using an output budget of 128, a safety reserve of 32,
@@ -125,35 +116,26 @@ on the volume at `/workspace/qwen-bf16/diagnostics-resources.json`.
 The original first-release JSON remains the historical November 2 record; this
 later configuration check does not rewrite that evidence.
 
-## Port roles on the two Pods
+## BF16 ports and configuration
 
-| Pod | HTTP ports | Jupyter |
-| --- | --- | --- |
-| 4bit (`rp93m3noz3l9lt`) | 8888: authenticated metrics; 8001: authenticated chat | No Jupyter launcher is configured in its current deployment |
-| BF16 (`ftntkktzid9f4p`) | 8888: authenticated Jupyter; 8889: authenticated metrics; 8001: authenticated chat | Enabled on 8888 |
+BF16 exposes authenticated Jupyter on 8888, authenticated metrics on 8889, and
+chat on 8001. vLLM stays private at `127.0.0.1:8000`. Runpod's generic port label
+does not start a service; the image's launcher owns the enabled processes.
 
-Both keep vLLM private at `127.0.0.1:8000`. The same port number on different
-Pods identifies separate services. Runpod's generic Jupyter/8888 port label does
-not start Jupyter or identify the process listening there; on the 4bit Pod,
-8888 is the metrics relay.
-
-## Shared configuration
-
-Both profiles use the same configuration keys and defaults:
-
-| Setting | Shared default |
+| Setting | Default |
 | --- | --- |
+| `MODEL_PROFILE` | `bf16` (sole supported profile) |
+| `SERVED_MODEL_NAME` | `qwen-bf16` |
 | `MAX_MODEL_LEN` | `40960` |
 | `MAX_NUM_SEQS` | `2` |
 | `GPU_MEMORY_UTILIZATION` | `0.90` |
 | `VLLM_HOST`, `VLLM_PORT` | `127.0.0.1`, `8000` |
 | `CHAT_PORT` | `8001` |
 
-`MODEL_PROFILE=4bit` is the default and retains the AWQ checkpoint and `qwen`
-served alias. `MODEL_PROFILE=bf16` selects the original local checkpoint, BF16
-dtype, `qwen-bf16` alias, eager execution/loading, and `CPU_OFFLOAD_GB=40`.
-The offloading budget is configurable. Both profiles explicitly enable prefix
-caching and retain the same gateway API, request limits, and metrics collection.
+The launcher selects the local original checkpoint, BF16 dtype, eager
+execution/loading, prefix caching, and `CPU_OFFLOAD_GB=40` unless overridden.
+The current RTX PRO 6000 Pod explicitly uses `CPU_OFFLOAD_GB=0`. Unsupported
+profiles are rejected; no quantized checkpoint startup/download path remains.
 
 The prior 30 GiB offload configuration reported a 37,205-token GPU KV cache,
 below the requested context. The accepted image therefore uses 40 GiB of CPU offloading. Its observed KV
@@ -224,8 +206,8 @@ with validated `JUPYTER_ALLOW_ORIGIN`. This allows cookie-authenticated API and
 terminal WebSocket requests when the proxy forwards an internal Host header.
 Other Origins remain blocked; token authentication and XSRF checks stay enabled. Do not print it or place it in Git. Jupyter uses the
 same root directory and authentication; its installed versions are pinned to the
-prior template's JupyterLab 4.6.4, Jupyter Server 2.21.1, and Notebook 7.6.3. The
-4bit profile does not start Jupyter unless explicitly enabled. SSH was not
+prior template's JupyterLab 4.6.4, Jupyter Server 2.21.1, and Notebook 7.6.3.
+SSH was not
 listening on the prior BF16 Pod, and this migration does not enable it.
 
 Apply the published image digest, environment, empty container start-command
@@ -248,7 +230,7 @@ so Prometheus target identities and historical series are preserved.
 Use the existing chat checker with a privately supplied BF16 chat credential:
 
 ```sh
-RUNPOD_CHAT_URL=https://ftntkktzid9f4p-8001.proxy.runpod.net \
+RUNPOD_BF16_CHAT_URL=https://ftntkktzid9f4p-8001.proxy.runpod.net \
 python scripts/check-chat-deployment.py --expected-model qwen-bf16 \
   --wait 3600 --read-timeout 180
 ```
@@ -256,16 +238,16 @@ python scripts/check-chat-deployment.py --expected-model qwen-bf16 \
 Also require missing/wrong chat tokens to fail, actual context to be 40,960,
 reported admission capacity to be two active/six waiting, a real BF16 response,
 concurrent short requests, cancellation, correct context rejection, Jupyter
-login protection/access, and both Prometheus targets/GPU exporters healthy.
+login protection/access, and the BF16 Prometheus target/GPU exporter healthy.
 A short generation test does not benchmark two maximum-context generations.
 
 ## Release and rollback
 
-The existing `prod` GitHub environment keeps its 4bit bindings
-`RUNPOD_POD_ID` and `RUNPOD_CHAT_TOKEN`. Add `RUNPOD_BF16_POD_ID` and the separate
-secret `RUNPOD_BF16_CHAT_TOKEN`; reuse the existing `RUNPOD_API_KEY` account
-credential. BF16 selection fails closed if either binding is absent or its Pod
-ID equals the 4bit Pod. Secrets never enter the image.
+Configure the selected GitHub environment with `RUNPOD_BF16_POD_ID`, secret
+`RUNPOD_BF16_CHAT_TOKEN`, and the existing `RUNPOD_API_KEY`. Deployment targets
+only those BF16 bindings and fails closed when they are missing. Generic legacy
+Pod/token bindings are ignored and are no longer read by the workflow. Secrets
+never enter the image.
 
 Build/publish a new image version on `main` through **Build and publish release**.
 The verified 0.10.1 digest above is the first official BF16 baseline. No earlier
@@ -273,10 +255,9 @@ PyTorch image or unverified 0.10.0 candidate is an official BF16 release. Later
 normal rollback can return to this verified baseline.
 
 For later deploys or rollbacks, use **Deploy or roll back Runpod image**, choose
-`target=prod`, `model_profile=bf16`, and the intended published image digest.
-These are the workflow's only inputs. The first official BF16 baseline is
+`target=prod` and the intended published image digest. BF16 is fixed; optional
+web-search actions retain their independently verified alias checks. The first official BF16 baseline is
 already verified, so deployments use normal versioned-image rollback: a failed
-update restores the previous official image and verifies it, just as on the
-4bit Pod. Existing Pod configuration, including `MAX_NUM_SEQS`, is preserved;
+update restores the previous official BF16 image and verifies it. Existing Pod configuration, including `MAX_NUM_SEQS`, is preserved;
 concurrency is managed on the Pod. Stable profile, volume, entrypoint, and ports
 stay configured.

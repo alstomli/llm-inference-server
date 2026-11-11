@@ -10,11 +10,6 @@ on:
         description: 'Image digest: zihan000/qwen-inference@sha256:...'
         type: string
         required: true
-      model_profile:
-        description: 'Serving profile configured on the target Pod'
-        type: choice
-        options: [4bit, bf16]
-        default: 4bit
       web_search_action:
         description: 'Keep current web settings, stage private parser, enable a verified alias, or disable'
         type: choice
@@ -40,12 +35,10 @@ jobs:
       - name: Deploy and verify, restoring the previous image on failure
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-          RUNPOD_CHAT_TOKEN: ${{ secrets.RUNPOD_CHAT_TOKEN }}
           RUNPOD_BF16_CHAT_TOKEN: ${{ secrets.RUNPOD_BF16_CHAT_TOKEN }}
           RUNPOD_BF16_POD_ID: ${{ vars.RUNPOD_BF16_POD_ID }}
-          RUNPOD_POD_ID: ${{ vars.RUNPOD_POD_ID }}
           DEPLOY_IMAGE: ${{ inputs.image }}
-          DEPLOY_MODEL_PROFILE: ${{ inputs.model_profile }}
+          DEPLOY_MODEL_PROFILE: bf16
           DEPLOY_WEB_SEARCH_ACTION: ${{ inputs.web_search_action || 'keep' }}
           DEPLOY_WEB_SEARCH_VERIFIED_ALIAS: ${{ inputs.verified_model_alias }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
@@ -54,19 +47,12 @@ jobs:
         continue-on-error: true
         env:
           RUNPOD_METRICS_TOKEN: ${{ secrets.RUNPOD_METRICS_TOKEN }}
-          RUNPOD_POD_ID: ${{ vars.RUNPOD_POD_ID }}
-          MODEL_PROFILE: ${{ inputs.model_profile }}
           RUNPOD_BF16_POD_ID: ${{ vars.RUNPOD_BF16_POD_ID }}
         run: |
-          metrics_port=8888
-          if [[ "$MODEL_PROFILE" == bf16 ]]; then
-            [[ -n "$RUNPOD_BF16_POD_ID" ]] || { echo "BF16 Pod is not configured."; exit 1; }
-            RUNPOD_POD_ID="$RUNPOD_BF16_POD_ID"
-            metrics_port=8889
-          fi
+          [[ -n "$RUNPOD_BF16_POD_ID" ]] || { echo "BF16 Pod is not configured."; exit 1; }
           if [[ -z "$RUNPOD_METRICS_TOKEN" ]]; then
             echo 'Metrics token not configured; metrics check skipped.' >> "$GITHUB_STEP_SUMMARY"
-          elif ! RUNPOD_METRICS_URL="https://${RUNPOD_POD_ID}-${metrics_port}.proxy.runpod.net" python scripts/check-monitoring.py; then
+          elif ! RUNPOD_METRICS_URL="https://${RUNPOD_BF16_POD_ID}-8889.proxy.runpod.net" python scripts/check-monitoring.py; then
             echo 'Metrics check failed; inspect monitoring separately. Deployment was not rolled back.' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           else
