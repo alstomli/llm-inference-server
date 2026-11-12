@@ -9,6 +9,7 @@ HEADERS={'Authorization':'Bearer '+os.environ['VLLM_API_KEY']} if os.getenv('VLL
 PREFIX=3136;INPUT=3200;OUTPUT=128
 STATS_INTERVAL=10.0
 FILE_PREFIX=''
+SOURCE_FINGERPRINT=''
 class CorrectnessFailure(RuntimeError):pass
 spec=importlib.util.spec_from_file_location('capacity',ROOT/'benchmark-capacity.py')
 b=importlib.util.module_from_spec(spec);sys.modules['capacity']=b;spec.loader.exec_module(b)
@@ -134,17 +135,22 @@ def expected_fillers(blocks):
  return 22
 def pair_summary(trial,order,pair):
  return {'trial':trial,'order':order,'accepted':True,'warmup':trial=='warmup','gpu':pair['gpu'],'cpu':pair['cpu'],
+  'source_fingerprint':SOURCE_FINGERPRINT,
   'server_ttft_cpu_minus_gpu_s':pair['cpu']['server_ttft_s']-pair['gpu']['server_ttft_s'],
   'client_ttft_cpu_minus_gpu_s':pair['cpu']['ttft_s']-pair['gpu']['ttft_s']}
 
 async def _checked(ids,salt,mode,label):
  before=await stable();row=await request(ids,salt,PREFIX)
+ if not row['answer_pass']:
+  row.update(label=label,condition=mode,checks={'known_answer':False},passed=False,time=time.time(),source_fingerprint=SOURCE_FINGERPRINT)
+  write(label+'.json',row)
+  raise CorrectnessFailure('Known-answer gate failed')
  def expected(m):
   d=delta(before,m)
   return total(d,'request_success_total')>=1 and total(d,'request_prefill_kv_computed_tokens_count')>=1 and total(d,'inter_token_latency_seconds_count')>=OUTPUT-1
  after=await stable(expected);d=delta(before,after);checks=verify(d,mode);checks['known_answer']=row['answer_pass']
  row['server_ttft_s']=total(d,'time_to_first_token_seconds_sum')
- row.update(label=label,condition=mode,checks=checks,passed=all(checks.values()),metrics_delta=d,input_ids_sha256=hashlib.sha256(json.dumps(ids).encode()).hexdigest(),time=time.time())
+ row.update(label=label,condition=mode,checks=checks,passed=all(checks.values()),metrics_delta=d,input_ids_sha256=hashlib.sha256(json.dumps(ids).encode()).hexdigest(),time=time.time(),source_fingerprint=SOURCE_FINGERPRINT)
  write(label+'.json',row);event('request_gate',label=label,condition=mode,passed=row['passed'],failed=[k for k,v in checks.items() if not v])
  if not row['answer_pass']:raise CorrectnessFailure('Known-answer gate failed')
  assert row['passed'],'Residency/correctness proof failed'
@@ -166,20 +172,25 @@ async def evict(trial):
  assert all(checks.values()),'Filler contamination or transfer failure'
 
 async def main():
- global HTTP,LEASE,PROMPTS,FILLERS,FILE_PREFIX
+ global HTTP,LEASE,PROMPTS,FILLERS,FILE_PREFIX,SOURCE_FINGERPRINT
  LEASE=json.loads((ROOT/'lease.json').read_text());RESULTS.mkdir(exist_ok=True)
  FILE_PREFIX=f'attempt{time.time_ns()}-'
+ source_names=['experiment.py','supervisor.py','kv_status.py','kv_residency_observer.py','bootstrap-source.py','benchmark-capacity.py']
+ source_hashes={name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in source_names}
+ SOURCE_FINGERPRINT=hashlib.sha256(json.dumps(source_hashes,sort_keys=True).encode()).hexdigest()
  layout=json.loads((ROOT/'layout-B.json').read_text());assert layout['actual_gpu_cache_bytes']<=4294967296 and layout['actual_gpu_cache_bytes']>3*1024**3
  assert {'MambaSpec','FullAttentionSpec'}.issubset({t for g in layout['groups'] for t in g['leaf_types']})
  FILLERS=expected_fillers(layout['num_blocks'])
  PROMPTS=Prompts();orders=['gpu-cpu']*10+['cpu-gpu']*10;random.Random(20261112).shuffle(orders)
- write('plan.json',{'orders':orders,'fillers_per_eviction':FILLERS,'stats_stability_seconds':STATS_INTERVAL,'input':INPUT,'prefix':PREFIX,'suffix':64,'output':OUTPUT,'layout_fingerprint':layout['layout_fingerprint']})
+ write('plan.json',{'orders':orders,'fillers_per_eviction':FILLERS,'stats_stability_seconds':STATS_INTERVAL,'input':INPUT,'prefix':PREFIX,'suffix':64,'output':OUTPUT,'layout_fingerprint':layout['layout_fingerprint'],'source_sha256':source_hashes,'source_fingerprint':SOURCE_FINGERPRINT})
  async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None),trust_env=False) as HTTP:
   # Complete one scored, proof-gated warm pair before accepting measurements.
   for trial,order in [('warmup','gpu-cpu'),*[(str(i),o) for i,o in enumerate(orders)]]:
    if trial in accepted_trials():
     event('accepted_pair_preserved',trial=trial);continue
-   if time.time()+900>LEASE['restore_at']:event('budget_stop',next_trial=trial);break
+   # Keep room for the common300s request deadline,90s finalization bound and
+   # a short stop/backup margin; absolute lease remains the final authority.
+   if time.time()+420>LEASE['restore_at']:event('budget_stop',next_trial=trial);break
    salt=hashlib.sha256(f"{LEASE['lease_id']}/target/{FILE_PREFIX}/{trial}".encode()).hexdigest();ids=PROMPTS.get(salt)
    await checked(ids,salt,'prime',trial+'-prime')
    pair={}

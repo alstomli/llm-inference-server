@@ -45,6 +45,33 @@ def safety(initial):
  assert m['swap']<=initial['swap'],'Swap growth'
  assert all(m['events'].get(k,0)<=initial['events'].get(k,0) for k in ['oom','oom_kill']),'OOM'
  return m
+def capacity(m):
+ assert m['current']+8589934592+32*1024**3<=m['limit'],'Preallocation RAM headroom'
+ assert m['shm_available']>=8589934592+8*1024**3,'Preallocation shared memory headroom'
+def idle(client,headers,timeout=30):
+ until=time.time()+timeout
+ while time.time()<until:
+  try:
+   if client.get('http://127.0.0.1:8000/health',headers=headers,timeout=2).status_code!=200:return False
+   r=client.get('http://127.0.0.1:8000/metrics',headers=headers,timeout=2);values={}
+   for line in r.text.splitlines():
+    if not line.startswith('vllm:'):continue
+    k,v=line.rsplit(' ',1);name=k.split('{')[0].removeprefix('vllm:');values[name]=values.get(name,0)+float(v)
+   required=['num_requests_running','num_requests_waiting']
+   names=required+['kv_offload_cpu_cache_usage_perc','kv_offload_cpu_cache_write_usage_perc','kv_offload_cpu_cache_read_usage_perc']
+   if r.status_code==200 and all(k in values for k in required) and all(values.get(k,0)==0 for k in names):return True
+  except (requests.RequestException,ValueError):pass
+  time.sleep(.5)
+ return False
+def released(baseline,timeout=45):
+ until=time.time()+timeout
+ while time.time()<until:
+  m=memory()
+  try:empty=not subprocess.check_output(['nvidia-smi','--query-compute-apps=pid','--format=csv,noheader,nounits'],text=True,timeout=5).strip()
+  except (OSError,subprocess.SubprocessError):empty=False
+  if empty and m['shm_available']>=baseline-1024**2:return m
+  time.sleep(.5)
+ raise RuntimeError('Worker or CPU buffer release timeout')
 def command(original):
  args=list(original)
  for i,v in enumerate(args):
@@ -64,7 +91,7 @@ def command(original):
  return args
 def main():
  global engine,controller
- status.start();initial=memory();safety(initial)
+ status.start();initial=memory();safety(initial);capacity(initial)
  def absolute_guard():
   while time.time()<LEASE['restore_at']:time.sleep(min(1,max(.01,LEASE['restore_at']-time.time())))
   stock('independent_local_absolute_deadline')
@@ -84,9 +111,8 @@ def main():
    reason=(ROOT/'restore.remote').read_text()
    if reason=='fatal correctness failure':stock('fatal_correctness_failure')
    terminate(controller);terminate(engine);controller=engine=None;restore_wait=True
-   released=memory();event('offload_workers_released',**released)
-   assert released['shm_available']>=initial['shm_available']-1024**2,'CPU buffer not reclaimed'
-   status.update(phase='ready_for_original_args_restore',resources=released,shm_baseline=initial['shm_available'])
+   resources=released(initial['shm_available']);event('offload_workers_released',**resources)
+   status.update(phase='ready_for_original_args_restore',resources=resources,shm_baseline=initial['shm_available'])
   if time.time()-last_sample>2:
    m=safety(initial);event('resources',**m);last_sample=time.time()
   if restore_wait:time.sleep(.5);continue
@@ -102,11 +128,14 @@ def main():
    except requests.RequestException:pass
    if time.time()-started>35*60:stock('bounded_startup_timeout')
   elif controller and controller.poll() is not None:
-   if failed_at is None:failed_at=time.time()
+   if failed_at is None:
+    if not idle(client,h):stock('failed_controller_not_idle')
+    failed_at=time.time()
    status.update(phase='experiment_failed_idle' if (ROOT/'experiment.failed').exists() else 'experiment_finished',controller_exit=controller.returncode)
    if time.time()-failed_at>=600 or time.time()+600>=LEASE['restore_at']:stock('diagnostic_hold_expired')
    retry=ROOT/'retry.controller'
    if retry.exists():
+    if not idle(client,h):stock('retry_not_idle')
     retry.unlink();failed_at=None;controller=spawn(['python3',str(ROOT/'experiment.py')],name='experiment-retry')
   time.sleep(.5)
  stock('absolute_deadline')

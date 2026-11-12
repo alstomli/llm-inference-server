@@ -35,7 +35,7 @@ class ProofTests(unittest.TestCase):
   for blocks in [82,84,667]:
    with self.assertRaises(AssertionError):self.m.expected_fillers(blocks)
  def test_known_answer_failure_is_fatal_and_retained(self):
-  with tempfile.TemporaryDirectory() as tmp,mock.patch.object(self.m,'RESULTS',Path(tmp)),mock.patch.object(self.m,'stable',new=mock.AsyncMock(side_effect=[{},self.values('gpu')])),mock.patch.object(self.m,'request',new=mock.AsyncMock(return_value={'answer_pass':False})):
+  with tempfile.TemporaryDirectory() as tmp,mock.patch.object(self.m,'RESULTS',Path(tmp)),mock.patch.object(self.m,'stable',new=mock.AsyncMock(side_effect=[{},TimeoutError()])),mock.patch.object(self.m,'request',new=mock.AsyncMock(return_value={'answer_pass':False})):
    with self.assertRaises(self.m.CorrectnessFailure):asyncio.run(self.m.checked([0]*3200,'test','gpu','known-answer'))
    row=json.loads((Path(tmp)/'known-answer.json').read_text());self.assertFalse(row['checks']['known_answer'])
    self.assertTrue((Path(tmp)/'known-answer-failure.json').exists())
@@ -87,6 +87,22 @@ class LaunchTests(unittest.TestCase):
    for bad in [{**good,'swap':1},{**good,'current':90*1024**3},{**good,'shm_available':0},{**good,'events':{'oom':1}}]:
     with mock.patch.dict(m,{'memory':lambda:bad}):
      with self.assertRaises(AssertionError):m['safety'](good)
+   for bad in [{**good,'current':65*1024**3},{**good,'shm_available':15*1024**3}]:
+    with self.assertRaises(AssertionError):m['capacity'](bad)
+ def test_hold_requires_idle_health_and_transfers(self):
+  with tempfile.TemporaryDirectory() as tmp,mock.patch.dict(os.environ,{'KV_EXPERIMENT_ROOT':tmp,'JUPYTER_PASSWORD':'test'}):
+   m=self.supervisor(tmp);client=mock.Mock()
+   client.get.return_value=mock.Mock(status_code=503)
+   self.assertFalse(m['idle'](client,{},timeout=.01))
+   client.get.side_effect=[mock.Mock(status_code=200),mock.Mock(status_code=200,text='vllm:num_requests_running 0\nvllm:num_requests_waiting 0\nvllm:kv_offload_cpu_cache_read_usage_perc 0')]
+   self.assertTrue(m['idle'](client,{}))
+   client.get.side_effect=None;client.get.return_value=mock.Mock(status_code=200,text='vllm:num_requests_running 1\nvllm:num_requests_waiting 0')
+   with mock.patch.object(m['time'],'sleep'):self.assertFalse(m['idle'](client,{},timeout=.01))
+ def test_release_waits_for_worker_and_shared_memory(self):
+  with tempfile.TemporaryDirectory() as tmp,mock.patch.dict(os.environ,{'KV_EXPERIMENT_ROOT':tmp,'JUPYTER_PASSWORD':'test'}):
+   m=self.supervisor(tmp)
+   with mock.patch.dict(m,{'memory':mock.Mock(side_effect=[{'shm_available':0},{'shm_available':100*1024**3}])}),mock.patch.object(m['subprocess'],'check_output',side_effect=['123','']),mock.patch.object(m['time'],'sleep'):
+    self.assertEqual(m['released'](100*1024**3)['shm_available'],100*1024**3)
  def test_fixed_pool_flags_and_histogram_preserved(self):
   with tempfile.TemporaryDirectory() as tmp,mock.patch.dict(os.environ,{'KV_EXPERIMENT_ROOT':tmp,'JUPYTER_PASSWORD':'test'}):
    root=Path(tmp);(root/'lease.json').write_text(json.dumps({'restore_at':time.time()+100}))
@@ -98,6 +114,17 @@ class LaunchTests(unittest.TestCase):
    hist=json.loads(args[args.index('--custom-histogram-buckets')+1]);self.assertEqual(hist['time_to_first_token'],[1,2]);self.assertEqual(len(hist['inter_token_latency']),205)
    config=json.loads(args[args.index('--kv-transfer-config')+1]);self.assertEqual(config['kv_connector_extra_config']['cpu_bytes_to_use'],8589934592)
 class BootstrapTests(unittest.TestCase):
+ def test_inline_hash_tampering_falls_back(self):
+  import base64,gzip,re
+  m=load('bootstrap_tamper','kv-residency-bootstrap.py')
+  with tempfile.TemporaryDirectory() as tmp,mock.patch.dict(os.environ,{}):
+   args=json.loads(m.build_override({'supervisor.py':b'# frozen','original-launch.private.json':b'{"public_exports":{}}'},'/tmp/kv-residency-fixture'))
+   code=args['entrypoint'][2].replace("'/tmp/kv-residency-fixture'",repr(str(Path(tmp)/'owned')))
+   encoded=re.search(r"base64.b64decode\('([^']+)'\)",code).group(1)
+   payload=json.loads(gzip.decompress(base64.b64decode(encoded)));payload['supervisor.py']['sha256']='0'*64
+   code=code.replace(encoded,base64.b64encode(gzip.compress(json.dumps(payload).encode())).decode())
+   with mock.patch.object(os,'execv') as execute:exec(compile(code,'tampered-inline','exec'),{})
+   self.assertEqual(execute.call_args.args[0],'/usr/local/bin/start-server')
  def test_inline_materialization_and_fallback(self):
   m=load('bootstrap_test','kv-residency-bootstrap.py')
   with tempfile.TemporaryDirectory(prefix='kv-residency-') as tmp,mock.patch.dict(os.environ,{}):
