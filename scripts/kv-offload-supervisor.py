@@ -70,10 +70,13 @@ def safety():
 
 
 def stock(reason):
-    event('restoring_stock',reason=reason)
-    atomic('engine.status.json',{'state':'restoring_stock','reason':reason})
+    try:event('restoring_stock',reason=reason)
+    except Exception:pass
+    try:atomic('engine.status.json',{'state':'restoring_stock','reason':reason})
+    except Exception:pass
     terminate(controller);terminate(engine)
-    event('benchmark_workers_released',resources=memory())
+    try:event('benchmark_workers_released',resources=memory())
+    except Exception:pass
     for p in children:terminate(p)
     os.execv('/usr/local/bin/start-server',['/usr/local/bin/start-server'])
 
@@ -165,5 +168,6 @@ def main():
 if __name__=='__main__':
     try:main()
     except BaseException as e:
-        event('supervisor_failure',error_type=type(e).__name__,reason=str(e) if str(e) in ['RAM headroom','Shared memory headroom','Swap growth','OOM','Engine exited','Startup deadline','B cutoff','Old GPU workers remain'] else 'suppressed')
+        try:event('supervisor_failure',error_type=type(e).__name__,reason=str(e) if str(e) in ['RAM headroom','Shared memory headroom','Swap growth','OOM','Engine exited','Startup deadline','B cutoff','Old GPU workers remain'] else 'suppressed')
+        except Exception:pass
         stock('supervisor_safety_stop')

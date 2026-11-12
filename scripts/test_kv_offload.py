@@ -128,5 +128,16 @@ class ExperimentTests(unittest.TestCase):
             self.assertEqual([call.args[0] for call in terminate.call_args_list],[s.controller,s.engine,*s.children])
             self.assertEqual(execute.call_args.args[0],'/usr/local/bin/start-server')
 
+    def test_stock_recovery_survives_logging_and_state_write_failure(self):
+        s=self.supervisor();s.controller=object();s.engine=object();s.children=[object()]
+        class ExecStock(Exception):pass
+        with mock.patch.object(s,'event',side_effect=OSError('disk full')), \
+             mock.patch.object(s,'atomic',side_effect=OSError('disk full')), \
+             mock.patch.object(s,'terminate') as terminate, \
+             mock.patch.object(s.os,'execv',side_effect=ExecStock) as execute:
+            with self.assertRaises(ExecStock):s.stock('write_failure')
+            self.assertEqual(terminate.call_count,3)
+            self.assertEqual(execute.call_args.args[0],'/usr/local/bin/start-server')
+
 
 if __name__=='__main__':unittest.main()
