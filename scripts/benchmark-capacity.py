@@ -69,7 +69,7 @@ class Config:
             raise ValueError("Invalid workload or concurrency (hard maximum 1024)")
         if not 1 <= self.max_backlog <= 1024 or self.duration <= 0 or self.wall_seconds <= 0:
             raise ValueError("Invalid queue or stage duration")
-        if not 0 < self.request_deadline <= 180 or self.arrival_rate < 0 or self.max_requests < 0:
+        if not 0 < self.request_deadline <= 300 or self.arrival_rate < 0 or self.max_requests < 0:
             raise ValueError("Invalid arrival or deadline limit")
         if not self.name or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for c in self.name):
             raise ValueError("Name must be a safe filename component")
@@ -178,6 +178,8 @@ def aggregate(config, records, elapsed, peak_outstanding=0, peak_backlog=0, stop
               "total_output_tokens": sum(r.get("completion_tokens", 0) for r in good),
               "peak_outstanding": peak_outstanding, "peak_client_backlog": peak_backlog,
               "stopped": stopped, "outcome_counts": {}}
+    result["successful_within_180s"] = sum(r.get("e2e_s", math.inf) <= 180 for r in good)
+    result["fraction_successful_within_180s"] = result["successful_within_180s"] / len(records) if records else 0
     result["avg_tpot_definition"] = "Approximate streaming-derived (last content chunk - first content chunk)/(usage output tokens - 1); chunks may contain multiple tokens"
     for r in records:
         result["outcome_counts"][r["outcome"]] = result["outcome_counts"].get(r["outcome"], 0) + 1

@@ -247,7 +247,7 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
 
     def test_validation_excludes_public_targets_and_unbounded_outstanding(self):
         for config in (capacity.Config(url="https://public.invalid"), capacity.Config(concurrency=1025),
-                       capacity.Config(url="http://secret@127.0.0.1"), capacity.Config(request_deadline=181)):
+                       capacity.Config(url="http://secret@127.0.0.1"), capacity.Config(request_deadline=301)):
             with self.assertRaises(ValueError):
                 config.validate()
 
