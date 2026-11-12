@@ -40,7 +40,7 @@ Synthetic text is seeded and tokenized before timing, with the installed chat
 template and thinking disabled. The exact generation suffix is retained. Unique
 early user prefixes and unique session/scenario/request `cache_salt` values
 isolate cross-request reuse. This uses the supported production completions
-schema; cache-reset routes are development-mode-only in vLLM0.32. The runner
+schema; cache-reset routes are development-mode-only in vLLM 0.32. The runner
 sends token IDs to `/v1/completions` so input
 length is exact. Forced-length mode sets `ignore_eos` and `min_tokens`; the usage
 frame must confirm exact input/output counts. `--natural-stop` is a separate
@@ -48,11 +48,11 @@ validation mode, not evidence about forced-length throughput.
 
 TTFT and end-to-end latency begin at scheduled arrival, including client queue
 wait. Engine submission time is recorded separately. Each request has a true
-wall deadline of at most180 seconds from scheduled arrival. Stage deadlines
+wall deadline of at most 180 seconds from scheduled arrival. Stage deadlines
 cancel remaining work and preserve partial reports. Every scheduled request
 must have an outcome. HTTP errors, malformed/truncated SSE, missing usage,
 token-count mismatches, drops, deadlines, and cancellations cannot count as
-success. After at least20 outcomes, over5% failures stop the scenario.
+success. After at least 20 outcomes, over 5% failures stop the scenario.
 Latency quantiles use successful requests; every failure remains in the success
 denominator.
 
@@ -68,10 +68,10 @@ and client backlog. GPU power/clocks/throttling need separate runtime evidence.
 Analysis groups by runtime fingerprint, sequence ceiling, and batched-token
 budget. It excludes warmups, natural-stop validation, staggered pairs, sustained
 open-loop runs, and tuning comparisons from homogeneous capacity estimates.
-The knee is the smallest tested concurrency within5% of the best successful
+The knee is the smallest tested concurrency within 5% of the best successful
 output throughput in that group. Chat capacity requires both short and medium
-at the same concurrency and exact settings, each with at least100 outcomes,
-success at least99%, p95 TTFT at most5s, and approximate p95 TPOT at most100ms.
+at the same concurrency and exact settings, each with at least 100 outcomes,
+success at least 99%, p95 TTFT at most 5 s, and approximate p95 TPOT at most 100 ms.
 Smaller samples are provisional. A largest passing value is a tested lower bound
 unless a failing boundary was observed.
 

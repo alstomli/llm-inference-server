@@ -1,0 +1,2210 @@
+{
+  "schema_version": 1,
+  "date_local": "2026-11-11",
+  "scope": "Private base-text engine. Public website/gateway capacity excluded.",
+  "runtime": {
+    "vllm_version": "0.32.0",
+    "model_config_sha256": "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab",
+    "model_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_id": "Qwen/Qwen3.8-27B",
+    "model_type": "qwen3_5",
+    "architectures": [
+      "Qwen3_5ForConditionalGeneration"
+    ],
+    "startup_sha256": "7a9a88d6c3f26867a9f21674e95ccf467505351165290bc2c9e644dcf35feef9",
+    "max_model_len": 40960,
+    "dtype": "bfloat16",
+    "cpu_offload_gb": 0,
+    "gpu_memory_utilization": 0.9,
+    "eager": true,
+    "adapter_loaded": true,
+    "fingerprint": "5a6eb9daffe33a53a8eea1ff",
+    "template_suffix_sha256": "5ca215121bd0820099042d7d3949d5b77533e17ad13bb8e6104d37029e7ea54d",
+    "prompt_pool_size_per_workload": 1024,
+    "prompt_pool_preparation_s": 17.11974811553955,
+    "prompt_token_lengths": {
+      "short": 512,
+      "medium": 2048,
+      "long": 8192
+    }
+  },
+  "gpu": {
+    "name": "NVIDIA RTX PRO6000 Blackwell Server Edition",
+    "memory_total_mib": 97887
+  },
+  "highest_tested_latency_passing_concurrency": {
+    "short_512_128": 32,
+    "medium_2048_256": 8,
+    "common_short_medium": 8
+  },
+  "observed_criteria": {
+    "minimum_outcomes_per_workload": 100,
+    "success_rate_minimum": 0.99,
+    "p95_ttft_max_s": 5,
+    "approximate_p95_tpot_max_s": 0.1
+  },
+  "highest_measured_steady_medium_concurrency": 64,
+  "global_throughput_peak_established": false,
+  "optimal_sequence_ceiling_or_batched_token_budget_established": false,
+  "long_cases_are_one_wave_bursts": true,
+  "staggered_phase_comparisons_executed": false,
+  "scenario_count": 31,
+  "model_request_outcomes": 2278,
+  "model_request_successes": 2278,
+  "all_outcomes_accounted": true,
+  "queue_analysis": [
+    {
+      "name": "open-loop-0.5-retry2",
+      "target_offered_requests_s": 0.6616102834535516,
+      "actual_offered_requests_s": 0.8,
+      "completed_in_arrival_window_requests_s": 0.61,
+      "client_backlog_peak": 0,
+      "client_backlog_linear_slope_per_s": 0.0,
+      "engine_waiting_peak": 0.0,
+      "inflight_at_arrival_end": 19,
+      "drain_s": 37.627059176098555
+    },
+    {
+      "name": "open-loop-0.8-retry2",
+      "target_offered_requests_s": 1.0585764535256825,
+      "actual_offered_requests_s": 1.21,
+      "completed_in_arrival_window_requests_s": 1.02,
+      "client_backlog_peak": 0,
+      "client_backlog_linear_slope_per_s": 0.0,
+      "engine_waiting_peak": 4.0,
+      "inflight_at_arrival_end": 19,
+      "drain_s": 38.58426665700972
+    },
+    {
+      "name": "open-loop-1-retry2",
+      "target_offered_requests_s": 1.323220566907103,
+      "actual_offered_requests_s": 1.47,
+      "completed_in_arrival_window_requests_s": 1.14,
+      "client_backlog_peak": 0,
+      "client_backlog_linear_slope_per_s": 0.0,
+      "engine_waiting_peak": 4.0,
+      "inflight_at_arrival_end": 33,
+      "drain_s": 39.195095157949254
+    },
+    {
+      "name": "open-loop-1.2-retry2",
+      "target_offered_requests_s": 1.5878646802885237,
+      "actual_offered_requests_s": 1.81,
+      "completed_in_arrival_window_requests_s": 1.17,
+      "client_backlog_peak": 9,
+      "client_backlog_linear_slope_per_s": 0.0032778356389084806,
+      "engine_waiting_peak": 4.0,
+      "inflight_at_arrival_end": 64,
+      "drain_s": 41.742582792881876
+    }
+  ],
+  "scenarios": [
+    {
+      "outcomes": 32,
+      "successful": 32,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.3711955199195391,
+      "output_tokens_s": 190.052106198804,
+      "total_output_tokens": 16384,
+      "elapsed_s": 86.20793701102957,
+      "peak_outstanding": 32,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 32
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 25.576306434930302,
+        "p95": 44.477300837112125,
+        "p99": 44.82048837098293
+      },
+      "e2e_s": {
+        "p50": 85.07959221291821,
+        "p95": 86.1463190679904,
+        "p99": 86.1805701785651
+      },
+      "avg_tpot_s": {
+        "p50": 0.11644456401552072,
+        "p95": 0.1519926642519267,
+        "p99": 0.1559479201476385
+      },
+      "client_wait_s": {
+        "p50": 5.302135832607746e-06,
+        "p95": 2.656717551872134e-05,
+        "p99": 3.251740010455252e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 5.302135832607746e-06,
+        "p95": 2.656717551872134e-05,
+        "p99": 3.251740010455252e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09204181819222867,
+        "p95": 1.2483545697224325,
+        "p99": 1.2706640589868183
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "long-boundary-32-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "long",
+        "concurrency": 32,
+        "duration": 75,
+        "wall_seconds": 240,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 64,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 64,
+      "successful": 64,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.3616861315488383,
+      "output_tokens_s": 185.1832993530052,
+      "total_output_tokens": 32768,
+      "elapsed_s": 176.9490019590594,
+      "peak_outstanding": 64,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 64
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 48.383053095894866,
+        "p95": 133.19768713044468,
+        "p99": 135.01450510418508
+      },
+      "e2e_s": {
+        "p50": 135.9462612880161,
+        "p95": 176.7281016331166,
+        "p99": 176.90703867329984
+      },
+      "avg_tpot_s": {
+        "p50": 0.1712783598026658,
+        "p95": 0.19931913814530208,
+        "p99": 0.1993997254700458
+      },
+      "client_wait_s": {
+        "p50": 5.353474989533424e-06,
+        "p95": 9.035237599164248e-06,
+        "p99": 1.0480764321982856e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 5.353474989533424e-06,
+        "p95": 9.035237599164248e-06,
+        "p99": 1.0480764321982856e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 1.2889812541136054,
+        "p95": 1.3072646362707019,
+        "p99": 1.3158832275283059
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "long-boundary-64-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "long",
+        "concurrency": 64,
+        "duration": 75,
+        "wall_seconds": 240,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 128,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 7,
+      "successful": 7,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.05175197868332548,
+      "output_tokens_s": 13.248506542931322,
+      "total_output_tokens": 1792,
+      "elapsed_s": 135.2605287390761,
+      "peak_outstanding": 1,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 7
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.46842023404315114,
+        "p95": 0.5034380378434434,
+        "p99": 0.5101397004025057
+      },
+      "e2e_s": {
+        "p50": 19.31071759411134,
+        "p95": 19.77073469294701,
+        "p99": 19.83442110419739
+      },
+      "avg_tpot_s": {
+        "p50": 0.07387405443461795,
+        "p95": 0.0756619189132699,
+        "p99": 0.0758893127742534
+      },
+      "client_wait_s": {
+        "p50": 5.6320102885365486e-05,
+        "p95": 8.974464144557714e-05,
+        "p99": 9.251620154827833e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 5.6320102885365486e-05,
+        "p95": 8.974464144557714e-05,
+        "p99": 9.251620154827833e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.08506468846462667,
+        "p95": 0.18589305703877473,
+        "p99": 0.21941484341095208
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "medium-sweep-1",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 1,
+        "duration": 120,
+        "wall_seconds": 300,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 63,
+      "successful": 63,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.5473039834039606,
+      "output_tokens_s": 140.1098197514139,
+      "total_output_tokens": 16128,
+      "elapsed_s": 115.10970486304723,
+      "peak_outstanding": 16,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 63
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 3.89370788494125,
+        "p95": 5.42862165258266,
+        "p99": 5.44871377479285
+      },
+      "e2e_s": {
+        "p50": 28.6717965148855,
+        "p95": 30.908147414587436,
+        "p99": 30.939941685227677
+      },
+      "avg_tpot_s": {
+        "p50": 0.09847593263211642,
+        "p95": 0.10336721092197752,
+        "p99": 0.10705824718071039
+      },
+      "client_wait_s": {
+        "p50": 4.098890349268913e-05,
+        "p95": 7.947927806526422e-05,
+        "p99": 0.00010534970089793207
+      },
+      "dispatch_lag_s": {
+        "p50": 4.098890349268913e-05,
+        "p95": 7.947927806526422e-05,
+        "p99": 0.00010534970089793207
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.10222836111206561,
+        "p95": 0.11458789006341248,
+        "p99": 0.2869871905019973
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "medium-sweep-16-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 16,
+        "duration": 90,
+        "wall_seconds": 270,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 32,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 12,
+      "successful": 12,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.08900681814622818,
+      "output_tokens_s": 22.785745445434415,
+      "total_output_tokens": 3072,
+      "elapsed_s": 134.8211322450079,
+      "peak_outstanding": 2,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 12
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.7589954955037683,
+        "p95": 7.819789646647405,
+        "p99": 7.820003529356327
+      },
+      "e2e_s": {
+        "p50": 22.00539969909005,
+        "p95": 27.411027368763463,
+        "p99": 27.412246104078367
+      },
+      "avg_tpot_s": {
+        "p50": 0.08001494577300607,
+        "p95": 0.08708016704612721,
+        "p99": 0.08724091090888297
+      },
+      "client_wait_s": {
+        "p50": 4.516111221164465e-05,
+        "p95": 7.873745635151863e-05,
+        "p99": 8.08810256421566e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 4.516111221164465e-05,
+        "p95": 7.873745635151863e-05,
+        "p99": 8.08810256421566e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09358932017348706,
+        "p95": 0.17239946130372105,
+        "p99": 0.24681068952882207
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "cold_mixed",
+      "all_outcomes_accounted": true,
+      "name": "medium-sweep-2-retry1",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 2,
+        "duration": 120,
+        "wall_seconds": 300,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 10,
+      "successful": 10,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.08860346695489334,
+      "output_tokens_s": 22.682487540452694,
+      "total_output_tokens": 2560,
+      "elapsed_s": 112.8624008030165,
+      "peak_outstanding": 2,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 10
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.7768737460719422,
+        "p95": 0.8203278135624714,
+        "p99": 0.8257060076692142
+      },
+      "e2e_s": {
+        "p50": 22.718179724062793,
+        "p95": 24.107416788965928,
+        "p99": 24.10783537140349
+      },
+      "avg_tpot_s": {
+        "p50": 0.08600039217054989,
+        "p95": 0.09155568122302236,
+        "p99": 0.09168935683082022
+      },
+      "client_wait_s": {
+        "p50": 5.294359289109707e-05,
+        "p95": 8.732130518183113e-05,
+        "p99": 8.73810681514442e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 5.294359289109707e-05,
+        "p95": 8.732130518183113e-05,
+        "p99": 8.73810681514442e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09532909377012402,
+        "p95": 0.09791792182368227,
+        "p99": 0.09809353002929129
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "medium-sweep-2-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 2,
+        "duration": 90,
+        "wall_seconds": 270,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 96,
+      "successful": 96,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.9753719427538589,
+      "output_tokens_s": 249.69521734498787,
+      "total_output_tokens": 24576,
+      "elapsed_s": 98.42399170203134,
+      "peak_outstanding": 32,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 96
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 4.797912516980432,
+        "p95": 10.600220454274677,
+        "p99": 10.852680728863925
+      },
+      "e2e_s": {
+        "p50": 32.77107755700126,
+        "p95": 40.016006782941986,
+        "p99": 41.01350644174963
+      },
+      "avg_tpot_s": {
+        "p50": 0.10985385882759503,
+        "p95": 0.11879961724009584,
+        "p99": 0.1225008921327946
+      },
+      "client_wait_s": {
+        "p50": 3.3852062188088894e-05,
+        "p95": 9.443942690268159e-05,
+        "p99": 0.00011751495767384756
+      },
+      "dispatch_lag_s": {
+        "p50": 3.3852062188088894e-05,
+        "p95": 9.443942690268159e-05,
+        "p99": 0.00011751495767384756
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.10340581977507099,
+        "p95": 0.22730216066993308,
+        "p99": 0.27317143976921215
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "medium-sweep-32-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 32,
+        "duration": 90,
+        "wall_seconds": 270,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 64,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 24,
+      "successful": 24,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.1832549310841888,
+      "output_tokens_s": 46.913262357552334,
+      "total_output_tokens": 6144,
+      "elapsed_s": 130.96509795403108,
+      "peak_outstanding": 4,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 24
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 1.3879407410277054,
+        "p95": 1.422817152866628,
+        "p99": 1.423067717005033
+      },
+      "e2e_s": {
+        "p50": 21.348873595474288,
+        "p95": 23.516527065471745,
+        "p99": 23.516837127299514
+      },
+      "avg_tpot_s": {
+        "p50": 0.07851522800549135,
+        "p95": 0.08713400353166256,
+        "p99": 0.08720907917439791
+      },
+      "client_wait_s": {
+        "p50": 3.551412373781204e-05,
+        "p95": 0.00010324639733880759,
+        "p99": 0.00012845641002058982
+      },
+      "dispatch_lag_s": {
+        "p50": 3.551412373781204e-05,
+        "p95": 0.00010324639733880759,
+        "p99": 0.00012845641002058982
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09280102488119156,
+        "p95": 0.100221309523331,
+        "p99": 0.19087612782500213
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "cold_mixed",
+      "all_outcomes_accounted": true,
+      "name": "medium-sweep-4-retry1",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 4,
+        "duration": 120,
+        "wall_seconds": 300,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 16,
+      "successful": 16,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.1670778886288,
+      "output_tokens_s": 42.7719394889728,
+      "total_output_tokens": 4096,
+      "elapsed_s": 95.7637191331014,
+      "peak_outstanding": 4,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 16
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 1.3922750885831192,
+        "p95": 1.432923813990783,
+        "p99": 1.4338240011944436
+      },
+      "e2e_s": {
+        "p50": 23.930096535012126,
+        "p95": 24.27186445594998,
+        "p99": 24.27291931580985
+      },
+      "avg_tpot_s": {
+        "p50": 0.08860568736232452,
+        "p95": 0.08976861771068298,
+        "p99": 0.09014304971304156
+      },
+      "client_wait_s": {
+        "p50": 2.318096812814474e-05,
+        "p95": 0.00010797940194606781,
+        "p99": 0.00011424459517002105
+      },
+      "dispatch_lag_s": {
+        "p50": 2.318096812814474e-05,
+        "p95": 0.00010797940194606781,
+        "p99": 0.00011424459517002105
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09717352640000172,
+        "p95": 0.13702799523016432,
+        "p99": 0.22620284556178352
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "medium-sweep-4-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 4,
+        "duration": 90,
+        "wall_seconds": 270,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 147,
+      "successful": 147,
+      "success_rate": 1.0,
+      "completed_requests_s": 1.3207756160898305,
+      "output_tokens_s": 338.1185577189966,
+      "total_output_tokens": 37632,
+      "elapsed_s": 111.29823885997757,
+      "peak_outstanding": 64,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 147
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 5.053875401848927,
+        "p95": 21.533150105620727,
+        "p99": 21.895417593563906
+      },
+      "e2e_s": {
+        "p50": 42.65602876897901,
+        "p95": 59.70994315217248,
+        "p99": 61.35650871918537
+      },
+      "avg_tpot_s": {
+        "p50": 0.1475944450864678,
+        "p95": 0.15378087692684037,
+        "p99": 0.15646175986400565
+      },
+      "client_wait_s": {
+        "p50": 1.6764039173722267e-05,
+        "p95": 8.144120220094919e-05,
+        "p99": 0.00017382020130753465
+      },
+      "dispatch_lag_s": {
+        "p50": 1.6764039173722267e-05,
+        "p95": 8.144120220094919e-05,
+        "p99": 0.00017382020130753465
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.6824202444870053,
+        "p95": 1.2187434158800172,
+        "p99": 1.231276153339073
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "medium-sweep-64-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 64,
+        "duration": 90,
+        "wall_seconds": 270,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 128,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 32,
+      "successful": 32,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.30830243642634564,
+      "output_tokens_s": 78.92542372514448,
+      "total_output_tokens": 8192,
+      "elapsed_s": 103.79418460302986,
+      "peak_outstanding": 8,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 32
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 2.5935127629199997,
+        "p95": 2.6782130174105987,
+        "p99": 2.7273977715498767
+      },
+      "e2e_s": {
+        "p50": 25.85925839957781,
+        "p95": 26.356667805335018,
+        "p99": 26.35814865433611
+      },
+      "avg_tpot_s": {
+        "p50": 0.09146023746260314,
+        "p95": 0.09407362029294246,
+        "p99": 0.09426648854226896
+      },
+      "client_wait_s": {
+        "p50": 3.440293949097395e-05,
+        "p95": 7.430373225361108e-05,
+        "p99": 7.937324233353139e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 3.440293949097395e-05,
+        "p95": 7.430373225361108e-05,
+        "p99": 7.937324233353139e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.10165996577125043,
+        "p95": 0.18319653465587168,
+        "p99": 0.27926066250132864
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "medium-sweep-8-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 8,
+        "duration": 90,
+        "wall_seconds": 270,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 263,
+      "successful": 263,
+      "success_rate": 1.0,
+      "completed_requests_s": 1.323220566907103,
+      "output_tokens_s": 293.6644032290259,
+      "total_output_tokens": 58368,
+      "elapsed_s": 198.7574910619296,
+      "peak_outstanding": 64,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 263
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 2.4555774389300495,
+        "p95": 22.24623589441181,
+        "p99": 23.95803356704768
+      },
+      "e2e_s": {
+        "p50": 39.00780619401485,
+        "p95": 86.75387449970005,
+        "p99": 101.56314691147766
+      },
+      "avg_tpot_s": {
+        "p50": 0.16139681958146904,
+        "p95": 0.2468540613462518,
+        "p99": 0.25192737856850494
+      },
+      "client_wait_s": {
+        "p50": 5.268794484436512e-05,
+        "p95": 0.00012511771637946367,
+        "p99": 0.0001390432985499501
+      },
+      "dispatch_lag_s": {
+        "p50": 5.268794484436512e-05,
+        "p95": 0.00012511771637946367,
+        "p99": 0.0001390432985499501
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.6431982227833942,
+        "p95": 1.3372774073760958,
+        "p99": 1.3374212019285185
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "mixed-boundary-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "mixed",
+        "concurrency": 64,
+        "duration": 150,
+        "wall_seconds": 330,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 128,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 12,
+      "successful": 12,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.1862390037984759,
+      "output_tokens_s": 23.838592486204917,
+      "total_output_tokens": 1536,
+      "elapsed_s": 64.43333434592932,
+      "peak_outstanding": 2,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 12
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.30235221597831696,
+        "p95": 0.669236777478363,
+        "p99": 0.9470776418480095
+      },
+      "e2e_s": {
+        "p50": 10.58782014704775,
+        "p95": 11.481737787218298,
+        "p99": 11.483003646943253
+      },
+      "avg_tpot_s": {
+        "p50": 0.08098595641373738,
+        "p95": 0.08524915840152254,
+        "p99": 0.08788761258101473
+      },
+      "client_wait_s": {
+        "p50": 7.526797708123922e-05,
+        "p95": 0.00010902907233685253,
+        "p99": 0.00011672826018184425
+      },
+      "dispatch_lag_s": {
+        "p50": 7.526797708123922e-05,
+        "p95": 0.00010902907233685253,
+        "p99": 0.00011672826018184425
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.08832406171131879,
+        "p95": 0.09242453362559899,
+        "p99": 0.092440092287492
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "natural-stop-validation",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "short",
+        "concurrency": 2,
+        "duration": 120,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 12,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": false,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "natural_stop"
+      }
+    },
+    {
+      "outcomes": 80,
+      "successful": 80,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.5812718912872037,
+      "output_tokens_s": 132.06497370045267,
+      "total_output_tokens": 18176,
+      "elapsed_s": 137.6292251511477,
+      "peak_outstanding": 24,
+      "peak_client_backlog": 1,
+      "outcome_counts": {
+        "success": 80
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.5342489535687491,
+        "p95": 2.0669317632913575,
+        "p99": 3.246514666273722
+      },
+      "e2e_s": {
+        "p50": 19.254586358671077,
+        "p95": 51.439362760842776,
+        "p99": 52.58337063496933
+      },
+      "avg_tpot_s": {
+        "p50": 0.09757703272454922,
+        "p95": 0.11381007035550496,
+        "p99": 0.130488757179357
+      },
+      "client_wait_s": {
+        "p50": 0.0009623575024306774,
+        "p95": 0.001830873207654804,
+        "p99": 0.002116661840118467
+      },
+      "dispatch_lag_s": {
+        "p50": 0.0009623575024306774,
+        "p95": 0.001830873207654804,
+        "p99": 0.002116661840118467
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.19531087665818633,
+        "p95": 0.260890512705082,
+        "p99": 0.47708324596635104
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "open-loop-0.5-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "mixed",
+        "concurrency": 64,
+        "duration": 100,
+        "wall_seconds": 280,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0.6616102834535516,
+        "max_backlog": 128,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "sustained"
+      }
+    },
+    {
+      "outcomes": 121,
+      "successful": 121,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.8731001467714858,
+      "output_tokens_s": 190.26367495926064,
+      "total_output_tokens": 26368,
+      "elapsed_s": 138.5866219899617,
+      "peak_outstanding": 42,
+      "peak_client_backlog": 1,
+      "outcome_counts": {
+        "success": 121
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.5822311111260206,
+        "p95": 2.71050926996395,
+        "p99": 3.276017329050228
+      },
+      "e2e_s": {
+        "p50": 17.23349769320339,
+        "p95": 57.11599261825904,
+        "p99": 64.10353679656981
+      },
+      "avg_tpot_s": {
+        "p50": 0.1093367766992255,
+        "p95": 0.13141924597998605,
+        "p99": 0.1521594156694459
+      },
+      "client_wait_s": {
+        "p50": 0.0008988415356725454,
+        "p95": 0.0020596631802618504,
+        "p99": 0.0022982375230640173
+      },
+      "dispatch_lag_s": {
+        "p50": 0.0008988415356725454,
+        "p95": 0.0020596631802618504,
+        "p99": 0.0022982375230640173
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.21156733417883516,
+        "p95": 0.45538366171531314,
+        "p99": 0.6261618742626164
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "open-loop-0.8-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "mixed",
+        "concurrency": 64,
+        "duration": 100,
+        "wall_seconds": 280,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 1.0585764535256825,
+        "max_backlog": 128,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "sustained"
+      }
+    },
+    {
+      "outcomes": 147,
+      "successful": 147,
+      "success_rate": 1.0,
+      "completed_requests_s": 1.0560396983662728,
+      "output_tokens_s": 232.64482715573726,
+      "total_output_tokens": 32384,
+      "elapsed_s": 139.199312513927,
+      "peak_outstanding": 56,
+      "peak_client_backlog": 1,
+      "outcome_counts": {
+        "success": 147
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.7242845993023366,
+        "p95": 2.7950771293835697,
+        "p99": 4.218299701237119
+      },
+      "e2e_s": {
+        "p50": 20.65912352828309,
+        "p95": 65.4067672428675,
+        "p99": 69.64687001066747
+      },
+      "avg_tpot_s": {
+        "p50": 0.12474882511026043,
+        "p95": 0.15459419676638023,
+        "p99": 0.1844193553729496
+      },
+      "client_wait_s": {
+        "p50": 0.000916885444894433,
+        "p95": 0.0020982559770345685,
+        "p99": 0.07805343699175815
+      },
+      "dispatch_lag_s": {
+        "p50": 0.000916885444894433,
+        "p95": 0.0020982559770345685,
+        "p99": 0.07805343699175815
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.2718867281684652,
+        "p95": 0.6593407400813891,
+        "p99": 0.9430343276462518
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "open-loop-1-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "mixed",
+        "concurrency": 64,
+        "duration": 100,
+        "wall_seconds": 280,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 1.323220566907103,
+        "max_backlog": 128,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "sustained"
+      }
+    },
+    {
+      "outcomes": 181,
+      "successful": 181,
+      "success_rate": 1.0,
+      "completed_requests_s": 1.276930624466798,
+      "output_tokens_s": 283.5491472849146,
+      "total_output_tokens": 40192,
+      "elapsed_s": 141.74615012900904,
+      "peak_outstanding": 64,
+      "peak_client_backlog": 10,
+      "outcome_counts": {
+        "success": 181
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 1.1292837930377573,
+        "p95": 3.999275933718309,
+        "p99": 4.813121311040594
+      },
+      "e2e_s": {
+        "p50": 24.88737008278258,
+        "p95": 77.7553203406278,
+        "p99": 89.21444245190358
+      },
+      "avg_tpot_s": {
+        "p50": 0.14764558163873268,
+        "p95": 0.19161251811017319,
+        "p99": 0.20304954624991484
+      },
+      "client_wait_s": {
+        "p50": 0.001090152421966195,
+        "p95": 1.8057761241216213,
+        "p99": 3.1065185543149707
+      },
+      "dispatch_lag_s": {
+        "p50": 0.001090152421966195,
+        "p95": 1.8057761241216213,
+        "p99": 3.1065185543149707
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.46696951691992594,
+        "p95": 0.8726019745925447,
+        "p99": 0.9443613661872222
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "open-loop-1.2-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "mixed",
+        "concurrency": 64,
+        "duration": 100,
+        "wall_seconds": 280,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 1.5878646802885237,
+        "max_backlog": 128,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "sustained"
+      }
+    },
+    {
+      "outcomes": 192,
+      "successful": 192,
+      "success_rate": 1.0,
+      "completed_requests_s": 2.3875097132420118,
+      "output_tokens_s": 305.6012432949775,
+      "total_output_tokens": 24576,
+      "elapsed_s": 80.41852099495009,
+      "peak_outstanding": 32,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 192
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 2.2911637974902987,
+        "p95": 2.8069847264210694,
+        "p99": 2.8078639760799704
+      },
+      "e2e_s": {
+        "p50": 13.370469414396212,
+        "p95": 13.50826471040491,
+        "p99": 13.509170803946908
+      },
+      "avg_tpot_s": {
+        "p50": 0.08661817629110273,
+        "p95": 0.08985503900688009,
+        "p99": 0.09707455614398373
+      },
+      "client_wait_s": {
+        "p50": 2.671009860932827e-05,
+        "p95": 6.161184282973408e-05,
+        "p99": 8.123074658215049e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 2.671009860932827e-05,
+        "p95": 6.161184282973408e-05,
+        "p99": 8.123074658215049e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09237309667514637,
+        "p95": 0.09473933252389542,
+        "p99": 0.09558015195373445
+      },
+      "chat_slo_pass": true,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "short-boundary-32-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "short",
+        "concurrency": 32,
+        "duration": 75,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 64,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 320,
+      "successful": 320,
+      "success_rate": 1.0,
+      "completed_requests_s": 4.048798857579777,
+      "output_tokens_s": 518.2462537702114,
+      "total_output_tokens": 40960,
+      "elapsed_s": 79.03578598401509,
+      "peak_outstanding": 64,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 320
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 3.385806299629621,
+        "p95": 5.407496244099457,
+        "p99": 5.408579317645636
+      },
+      "e2e_s": {
+        "p50": 15.84466883901041,
+        "p95": 18.01306066486286,
+        "p99": 18.03190365939401
+      },
+      "avg_tpot_s": {
+        "p50": 0.0988005831778988,
+        "p95": 0.10823049203870364,
+        "p99": 0.1141243368247524
+      },
+      "client_wait_s": {
+        "p50": 2.7347472496330738e-05,
+        "p95": 6.92199100740254e-05,
+        "p99": 8.885708870366218e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 2.7347472496330738e-05,
+        "p95": 6.92199100740254e-05,
+        "p99": 8.885708870366218e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09606075487099588,
+        "p95": 0.09962534196674824,
+        "p99": 0.0996422229402233
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "short-boundary-64-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "short",
+        "concurrency": 64,
+        "duration": 75,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 1024,
+        "arrival_rate": 0,
+        "max_backlog": 128,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 100,
+      "successful": 100,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.3437410298956259,
+      "output_tokens_s": 87.99770365328023,
+      "total_output_tokens": 25600,
+      "elapsed_s": 290.91668233601376,
+      "peak_outstanding": 8,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 100
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 2.4771864835638553,
+        "p95": 2.594317334424704,
+        "p99": 2.7016853628796524
+      },
+      "e2e_s": {
+        "p50": 22.30777966696769,
+        "p95": 23.221442601690068,
+        "p99": 23.223087758768816
+      },
+      "avg_tpot_s": {
+        "p50": 0.078247117872496,
+        "p95": 0.08109746854615342,
+        "p99": 0.08197042227574788
+      },
+      "client_wait_s": {
+        "p50": 4.0978542529046535e-05,
+        "p95": 8.1437430344522e-05,
+        "p99": 0.0001094438810832804
+      },
+      "dispatch_lag_s": {
+        "p50": 4.0978542529046535e-05,
+        "p95": 8.1437430344522e-05,
+        "p99": 0.0001094438810832804
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.08713584368815645,
+        "p95": 0.23835748425452036,
+        "p99": 0.25420015440124555
+      },
+      "chat_slo_pass": true,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "validate-medium-8-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 8,
+        "duration": 420,
+        "wall_seconds": 540,
+        "request_deadline": 180,
+        "max_requests": 100,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 100,
+      "successful": 100,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.7195370589226,
+      "output_tokens_s": 92.1007435420928,
+      "total_output_tokens": 12800,
+      "elapsed_s": 138.97824824997224,
+      "peak_outstanding": 8,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 100
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.7618385490495712,
+        "p95": 0.7857944793533533,
+        "p99": 0.7861434489465319
+      },
+      "e2e_s": {
+        "p50": 10.809627534123138,
+        "p95": 11.248333281395025,
+        "p99": 11.249333387441002
+      },
+      "avg_tpot_s": {
+        "p50": 0.07928294449215975,
+        "p95": 0.08240007465507278,
+        "p99": 0.08246428076121004
+      },
+      "client_wait_s": {
+        "p50": 3.138044849038124e-05,
+        "p95": 6.22483086772263e-05,
+        "p99": 8.148156804963949e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 3.138044849038124e-05,
+        "p95": 6.22483086772263e-05,
+        "p99": 8.148156804963949e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.08675556818488986,
+        "p95": 0.08984628389007412,
+        "p99": 0.08988384467479772
+      },
+      "chat_slo_pass": true,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "validate-short-8-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "short",
+        "concurrency": 8,
+        "duration": 354.45131397247314,
+        "wall_seconds": 474.45131397247314,
+        "request_deadline": 180,
+        "max_requests": 100,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "capacity"
+      }
+    },
+    {
+      "outcomes": 2,
+      "successful": 2,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.02527988756475055,
+      "output_tokens_s": 12.943302433152281,
+      "total_output_tokens": 1024,
+      "elapsed_s": 79.11427591904067,
+      "peak_outstanding": 1,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 2
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 1.5524892719695345,
+        "p95": 1.5811936929239891,
+        "p99": 1.5837451970088297
+      },
+      "e2e_s": {
+        "p50": 39.55508833297063,
+        "p95": 39.77555137170712,
+        "p99": 39.79514808626147
+      },
+      "avg_tpot_s": {
+        "p50": 0.07436853047157774,
+        "p95": 0.07485587448856762,
+        "p99": 0.0748991939567445
+      },
+      "client_wait_s": {
+        "p50": 2.971349749714136e-05,
+        "p95": 4.131667083129287e-05,
+        "p99": 4.234806401655078e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 2.971349749714136e-05,
+        "p95": 4.131667083129287e-05,
+        "p99": 4.234806401655078e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.08172858430771157,
+        "p95": 0.08384544437867589,
+        "p99": 0.08403360971831716
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-long",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "long",
+        "concurrency": 1,
+        "duration": 60,
+        "wall_seconds": 90,
+        "request_deadline": 180,
+        "max_requests": 2,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    },
+    {
+      "outcomes": 2,
+      "successful": 2,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.04338461473350165,
+      "output_tokens_s": 11.106461371776422,
+      "total_output_tokens": 512,
+      "elapsed_s": 46.099291471997276,
+      "peak_outstanding": 1,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 2
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.5477024480933324,
+        "p95": 0.5730438686558046,
+        "p99": 0.5752964393724688
+      },
+      "e2e_s": {
+        "p50": 23.046909308526665,
+        "p95": 24.968481800262815,
+        "p99": 25.139288243972697
+      },
+      "avg_tpot_s": {
+        "p50": 0.08823059145498144,
+        "p95": 0.09566715185598963,
+        "p99": 0.09632817944719035
+      },
+      "client_wait_s": {
+        "p50": 5.147105548530817e-05,
+        "p95": 7.897951873019337e-05,
+        "p99": 8.142471546307206e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 5.147105548530817e-05,
+        "p95": 7.897951873019337e-05,
+        "p99": 8.142471546307206e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.11646803707117216,
+        "p95": 0.1312418347306084,
+        "p99": 0.13255506118922497
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-medium",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 1,
+        "duration": 60,
+        "wall_seconds": 90,
+        "request_deadline": 180,
+        "max_requests": 2,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    },
+    {
+      "outcomes": 128,
+      "successful": 128,
+      "success_rate": 1.0,
+      "completed_requests_s": 1.4408078294845834,
+      "output_tokens_s": 368.84680434805335,
+      "total_output_tokens": 32768,
+      "elapsed_s": 88.83905083010904,
+      "peak_outstanding": 128,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 128
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 23.95700159657281,
+        "p95": 64.81915663323598,
+        "p99": 65.22019632664743
+      },
+      "e2e_s": {
+        "p50": 66.07412935595494,
+        "p95": 88.76852625616593,
+        "p99": 88.80835606586653
+      },
+      "avg_tpot_s": {
+        "p50": 0.1651603260196234,
+        "p95": 0.21521998942386833,
+        "p99": 0.21898560460938107
+      },
+      "client_wait_s": {
+        "p50": 4.672561772167683e-06,
+        "p95": 6.401690188795328e-06,
+        "p99": 9.319516830146314e-06
+      },
+      "dispatch_lag_s": {
+        "p50": 4.672561772167683e-06,
+        "p95": 6.401690188795328e-06,
+        "p99": 9.319516830146314e-06
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.9461830111569726,
+        "p95": 1.2696868830360473,
+        "p99": 1.273888964006328
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-shape-128-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 128,
+        "duration": 1,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 128,
+        "arrival_rate": 0,
+        "max_backlog": 256,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    },
+    {
+      "outcomes": 16,
+      "successful": 16,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.5408700487675614,
+      "output_tokens_s": 138.46273248449572,
+      "total_output_tokens": 4096,
+      "elapsed_s": 29.58196712215431,
+      "peak_outstanding": 16,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 16
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 4.708848229376599,
+        "p95": 5.5969520173966885,
+        "p99": 5.59705493543297
+      },
+      "e2e_s": {
+        "p50": 29.478237935574725,
+        "p95": 29.576102105900645,
+        "p99": 29.576257047615947
+      },
+      "avg_tpot_s": {
+        "p50": 0.0971208680822861,
+        "p95": 0.10228795268225903,
+        "p99": 0.10490704270554524
+      },
+      "client_wait_s": {
+        "p50": 5.000503733754158e-06,
+        "p95": 9.054201655089855e-06,
+        "p99": 1.2289895676076412e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 5.000503733754158e-06,
+        "p95": 9.054201655089855e-06,
+        "p99": 1.2289895676076412e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.10477685609366745,
+        "p95": 0.10550004708347842,
+        "p99": 0.1055051700747572
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-shape-16-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 16,
+        "duration": 1,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 16,
+        "arrival_rate": 0,
+        "max_backlog": 32,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    },
+    {
+      "outcomes": 2,
+      "successful": 2,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.1000578872949039,
+      "output_tokens_s": 25.6148191474954,
+      "total_output_tokens": 512,
+      "elapsed_s": 19.98842923901975,
+      "peak_outstanding": 2,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 2
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 0.8183572074631229,
+        "p95": 0.8501449982519261,
+        "p99": 0.8529705796553754
+      },
+      "e2e_s": {
+        "p50": 19.98385785042774,
+        "p95": 19.98468531264225,
+        "p99": 19.984758864839094
+      },
+      "avg_tpot_s": {
+        "p50": 0.0751566322410808,
+        "p95": 0.07527667882715297,
+        "p99": 0.07528734963480382
+      },
+      "client_wait_s": {
+        "p50": 1.261045690625906e-05,
+        "p95": 1.4861731324344872e-05,
+        "p99": 1.5061844605952502e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 1.261045690625906e-05,
+        "p95": 1.4861731324344872e-05,
+        "p99": 1.5061844605952502e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.08459725835127757,
+        "p95": 0.08472714726696723,
+        "p99": 0.08473869294836187
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-shape-2-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 2,
+        "duration": 1,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 2,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    },
+    {
+      "outcomes": 32,
+      "successful": 32,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.9889683781371197,
+      "output_tokens_s": 253.17590480310264,
+      "total_output_tokens": 8192,
+      "elapsed_s": 32.35694963298738,
+      "peak_outstanding": 32,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 32
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 7.862172953551635,
+        "p95": 10.805399229028263,
+        "p99": 10.871880356604233
+      },
+      "e2e_s": {
+        "p50": 32.05431100295391,
+        "p95": 32.34616137406556,
+        "p99": 32.347798741008155
+      },
+      "avg_tpot_s": {
+        "p50": 0.09487362528018946,
+        "p95": 0.110623940561405,
+        "p99": 0.11361198772806858
+      },
+      "client_wait_s": {
+        "p50": 4.976056516170502e-06,
+        "p95": 6.574671715497971e-06,
+        "p99": 9.65460436418653e-06
+      },
+      "dispatch_lag_s": {
+        "p50": 4.976056516170502e-06,
+        "p95": 6.574671715497971e-06,
+        "p99": 9.65460436418653e-06
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09860497406916693,
+        "p95": 0.10376214677642569,
+        "p99": 0.21275821976573228
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-shape-32-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 32,
+        "duration": 1,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 32,
+        "arrival_rate": 0,
+        "max_backlog": 64,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    },
+    {
+      "outcomes": 4,
+      "successful": 4,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.16504293038928156,
+      "output_tokens_s": 42.25099017965608,
+      "total_output_tokens": 1024,
+      "elapsed_s": 24.236118387896568,
+      "peak_outstanding": 4,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 4
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 1.4353941115550697,
+        "p95": 1.4364847229560838,
+        "p99": 1.4365878733946011
+      },
+      "e2e_s": {
+        "p50": 24.229292156058364,
+        "p95": 24.230117322248407,
+        "p99": 24.230191609323956
+      },
+      "avg_tpot_s": {
+        "p50": 0.08938993939801174,
+        "p95": 0.08991052642619858,
+        "p99": 0.0899836506436159
+      },
+      "client_wait_s": {
+        "p50": 2.5449087843298912e-05,
+        "p95": 3.373008221387863e-05,
+        "p99": 3.4893937408924104e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 2.5449087843298912e-05,
+        "p95": 3.373008221387863e-05,
+        "p99": 3.4893937408924104e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09642524339142255,
+        "p95": 0.09643955436826218,
+        "p99": 0.09644154137244913
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-shape-4-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 4,
+        "duration": 1,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 4,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    },
+    {
+      "outcomes": 64,
+      "successful": 64,
+      "success_rate": 1.0,
+      "completed_requests_s": 1.5088660712644797,
+      "output_tokens_s": 386.2697142437068,
+      "total_output_tokens": 16384,
+      "elapsed_s": 42.41595806204714,
+      "peak_outstanding": 64,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 64
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 13.521733261994086,
+        "p95": 21.86101752121467,
+        "p99": 21.89246101388242
+      },
+      "e2e_s": {
+        "p50": 41.80870438693091,
+        "p95": 42.38183894125977,
+        "p99": 42.38299316891935
+      },
+      "avg_tpot_s": {
+        "p50": 0.11093555189824353,
+        "p95": 0.14745642394868327,
+        "p99": 0.14911221842637612
+      },
+      "client_wait_s": {
+        "p50": 6.298534572124481e-06,
+        "p95": 2.7271872386336337e-05,
+        "p99": 3.877616953104733e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 6.298534572124481e-06,
+        "p95": 2.7271872386336337e-05,
+        "p99": 3.877616953104733e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.10019005123758692,
+        "p95": 1.2174141350679566,
+        "p99": 1.2241677578007801
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-shape-64-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 64,
+        "duration": 1,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 64,
+        "arrival_rate": 0,
+        "max_backlog": 128,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    },
+    {
+      "outcomes": 8,
+      "successful": 8,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.32566948551424907,
+      "output_tokens_s": 83.37138829164776,
+      "total_output_tokens": 2048,
+      "elapsed_s": 24.56478225882165,
+      "peak_outstanding": 8,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 8
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 2.599130050977692,
+        "p95": 2.7960707366117274,
+        "p99": 2.7961016376991754
+      },
+      "e2e_s": {
+        "p50": 24.55575095547829,
+        "p95": 24.560623446200044,
+        "p99": 24.560858513172715
+      },
+      "avg_tpot_s": {
+        "p50": 0.08608979764120543,
+        "p95": 0.08710863992494221,
+        "p99": 0.0875396342972823
+      },
+      "client_wait_s": {
+        "p50": 6.424030289053917e-06,
+        "p95": 1.5083060134202245e-05,
+        "p99": 1.7001351807266474e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 6.424030289053917e-06,
+        "p95": 1.5083060134202245e-05,
+        "p99": 1.7001351807266474e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.09561219457536936,
+        "p95": 0.20313169972505424,
+        "p99": 0.24939171093981705
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-shape-8-retry2",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "medium",
+        "concurrency": 8,
+        "duration": 1,
+        "wall_seconds": 180,
+        "request_deadline": 180,
+        "max_requests": 8,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    },
+    {
+      "outcomes": 1,
+      "successful": 1,
+      "success_rate": 1.0,
+      "completed_requests_s": 0.01233558858098968,
+      "output_tokens_s": 1.578955338366679,
+      "total_output_tokens": 128,
+      "elapsed_s": 81.06625747401267,
+      "peak_outstanding": 1,
+      "peak_client_backlog": 0,
+      "outcome_counts": {
+        "success": 1
+      },
+      "stopped": null,
+      "ttft_s": {
+        "p50": 70.23877563001588,
+        "p95": 70.23877563001588,
+        "p99": 70.23877563001588
+      },
+      "e2e_s": {
+        "p50": 81.06334519106895,
+        "p95": 81.06334519106895,
+        "p99": 81.06334519106895
+      },
+      "avg_tpot_s": {
+        "p50": 0.08523169176389031,
+        "p95": 0.08523169176389031,
+        "p99": 0.08523169176389031
+      },
+      "client_wait_s": {
+        "p50": 3.1106872484087944e-05,
+        "p95": 3.1106872484087944e-05,
+        "p99": 3.1106872484087944e-05
+      },
+      "dispatch_lag_s": {
+        "p50": 3.1106872484087944e-05,
+        "p95": 3.1106872484087944e-05,
+        "p99": 3.1106872484087944e-05
+      },
+      "chunk_gap_p95_s": {
+        "p50": 0.11001865828875453,
+        "p95": 0.11001865828875453,
+        "p99": 0.11001865828875453
+      },
+      "chat_slo_pass": false,
+      "measurement_state": "steady",
+      "all_outcomes_accounted": true,
+      "name": "warm-short",
+      "config": {
+        "model": "qwen-bf16-base",
+        "workload": "short",
+        "concurrency": 1,
+        "duration": 60,
+        "wall_seconds": 90,
+        "request_deadline": 180,
+        "max_requests": 2,
+        "arrival_rate": 0,
+        "max_backlog": 16,
+        "seed": 12345,
+        "force_length": true,
+        "max_num_seqs": 256,
+        "max_num_batched_tokens": 8192,
+        "runtime_fingerprint": "5a6eb9daffe33a53a8eea1ff",
+        "scenario_kind": "warmup"
+      }
+    }
+  ],
+  "restoration": {
+    "configuration": {
+      "restoredAt": 1794448116.1511905,
+      "configurationEqual": {
+        "args": true,
+        "env": true,
+        "image": true,
+        "ports": true,
+        "mounts": true,
+        "disk": true,
+        "registry": true
+      },
+      "productionHealthVerified": true
+    },
+    "runtime": {
+      "passed": true,
+      "records": [
+        {
+          "stage": "restoration_runtime_verification",
+          "time": 1794448367.953442,
+          "originalModelArgvExact": true,
+          "maxNumSeqs": "2",
+          "benchmarkProcessCount": 0,
+          "engineGauges": {
+            "vllm:num_requests_running": 0.0,
+            "vllm:num_requests_waiting": 0.0
+          },
+          "ready": true,
+          "gatewayAdmission": {
+            "activeRequests": 0,
+            "maxConcurrentRequests": 2,
+            "maxWaitingRequests": 6,
+            "waitingRequests": 0
+          },
+          "accountQuotasEnforced": true,
+          "contextTokens": 40960,
+          "metricsStatus": 200,
+          "gpuExporterHealthy": true,
+          "stockLauncherPID1": true,
+          "passed": true
+        }
+      ]
+    },
+    "cleanup": {
+      "passed": true,
+      "records": [
+        {
+          "temporarySessionRemoved": true,
+          "modelAndVolumePreserved": true,
+          "benchmarkProcesses": 0
+        }
+      ]
+    },
+    "base_adapter_smoke_passed": true
+  },
+  "ci": {
+    "source_commit": "ce2845d37127ba7ee852f6598ae1350a18da20bb",
+    "url": "https://github.com/alstomli/llm-inference-server/actions/runs/43132101885",
+    "conclusion": "success"
+  },
+  "privacy": "No credentials, prompt text/token IDs, or model output text are included."
+}
