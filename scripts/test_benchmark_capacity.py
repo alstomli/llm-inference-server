@@ -113,14 +113,21 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(set(self.salts)), 12)
         self.assertTrue(all(isinstance(salt,str) and len(salt)==64 for salt in self.salts))
 
-    async def test_open_loop_queue_bound_and_scheduled_deadline(self):
+    async def test_open_loop_queue_bound_and_explicit_drops(self):
         self.delay = .12
         result, runner = await self.run_case(concurrency=2, arrival_rate=1000, max_backlog=3, request_deadline=.05)
         self.assertLessEqual(result["peak_outstanding"], 2)
         self.assertLessEqual(result["peak_client_backlog"], 3)
         self.assertGreater(result["outcome_counts"].get("client_drop", 0), 0)
+        self.assertTrue(result["all_outcomes_accounted"])
+
+    async def test_open_loop_deadline_includes_time_in_client_queue(self):
+        self.delay = .12
+        result, runner = await self.run_case(concurrency=1, arrival_rate=50, max_backlog=3,
+                                             request_deadline=.05, max_requests=12)
         self.assertGreater(result["outcome_counts"].get("deadline", 0), 0)
         self.assertTrue(result["all_outcomes_accounted"])
+        self.assertEqual(result['outcomes'], 12)
         for row in runner.records:
             if row["outcome"] == "deadline":
                 self.assertLess(row["ended_s"] - row["scheduled_s"], .3)
