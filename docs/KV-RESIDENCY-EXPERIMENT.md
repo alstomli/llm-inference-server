@@ -1,5 +1,8 @@
 # Focused CPU-restored versus GPU-resident prefix test
 
+The [completed 20-pair results](KV-RESIDENCY-RESULTS-2026-11-12.md) include
+the raw numerical archive, verified residency counters and full restoration.
+
 This diagnostic uses one fixed native-offload engine: 4 GiB GPU KV budget,
 8 GiB CPU tier, original BF16 model/image, context 40960, sequence ceiling 2,
 eager execution, loaded LoRA/vision allocation, prefix caching and aligned Mamba
