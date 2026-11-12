@@ -184,7 +184,7 @@ def aggregate(config, records, elapsed, peak_outstanding=0, peak_backlog=0, stop
     for key in ("ttft_s", "e2e_s", "avg_tpot_s", "client_wait_s", "dispatch_lag_s", "chunk_gap_p95_s"):
         values = [r[key] for r in good if r.get(key) is not None]
         result[key] = {"p50": percentile(values, 50), "p95": percentile(values, 95), "p99": percentile(values, 99)}
-    result["chat_slo_pass"] = (config.scenario_kind == "capacity" and config.force_length
+    result["chat_slo_pass"] = (stopped is None and config.scenario_kind == "capacity" and config.force_length
                                and not config.arrival_rate and len(records) >= 100 and result["success_rate"] >= .99
                                and result["ttft_s"]["p95"] is not None and result["ttft_s"]["p95"] <= 5
                                and result["avg_tpot_s"]["p95"] is not None and result["avg_tpot_s"]["p95"] <= .1)
@@ -504,7 +504,7 @@ def analyze(root):
     for group, scenarios in groups.items():
         measured = [r for r in scenarios if r["config"]["scenario_kind"] == "capacity"
                     and r["config"]["force_length"] and not r["config"]["arrival_rate"]
-                    and r["measurement_state"] == "steady"]
+                    and r["measurement_state"] == "steady" and not r.get("stopped")]
         knee = {}
         for workload in WORKLOADS:
             eligible = [r for r in measured if r["config"]["workload"] == workload and r["success_rate"] >= .99]

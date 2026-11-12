@@ -192,6 +192,7 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
         rows = [dict(good) for _ in range(100)]
         self.assertTrue(capacity.aggregate(config, rows, 10)["chat_slo_pass"])
         self.assertFalse(capacity.aggregate(config, rows[:99], 10)["chat_slo_pass"])
+        self.assertFalse(capacity.aggregate(config, rows, 10, stopped='stage_wall_deadline')["chat_slo_pass"])
         self.assertFalse(capacity.aggregate(config, rows + [{"outcome":"deadline"}] * 2, 10)["chat_slo_pass"])
 
     async def test_safety_stop_prevents_continued_submission(self):
