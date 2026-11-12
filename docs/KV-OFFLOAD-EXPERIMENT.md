@@ -1,5 +1,10 @@
 # Native CPU KV-cache experiment
 
+**Draft tooling; do not repeat unchanged.** The
+[November 12 attempt](KV-OFFLOAD-ATTEMPT-2026-11-12.md) was blocked before latency
+measurements. Offloading was never activated. Runtime control/status/log state
+must be independent of global-volume I/O before another attempt.
+
 This experiment compares the existing BF16 Qwen3.8-27B engine with and without
 vLLM 0.32.0's native `OffloadingConnector`. It does not change production gateway
 quotas or enable offloading permanently. CPU **weight** offloading remains zero.
@@ -41,7 +46,9 @@ growth. There is no automatic reduction of concurrency or cache capacity.
 
 An independently detached local watchdog restores the fresh original pod args
 at minute 150, leaving 30 minutes for the original production launcher to load
-and pass verification. The remote supervisor has the same absolute deadline.
+and pass verification. The remote supervisor checks the same absolute deadline,
+but its filesystem operations can block; the independent external watchdog is
+essential, and the remote deadline was not observed firing reliably in this run.
 B must end by minute 125; measured B stages stop earlier to allow transition.
 All work uses the existing paid pod. Private access and snapshots are outside
 the repository and must never be committed.

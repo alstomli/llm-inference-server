@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "date_local": "2026-11-12",
+  "outcome": "attempt_blocked_before_measurements",
+  "offloading_activated": false,
+  "accepted_ab_latency_samples": 0,
+  "performance_comparison": null,
+  "scope": "Private Qwen3.8-27B BF16 engine; original production restored; no adoption decision from performance data",
+  "runtime": {
+    "model_id": "Qwen/Qwen3.8-27B",
+    "model_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_config_sha256": "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab",
+    "vllm": "0.32.0",
+    "torch": "2.13.0+cu130",
+    "transformers": "5.19.0",
+    "startup_sha256": "7a9a88d6c3f26867a9f21674e95ccf467505351165290bc2c9e644dcf35feef9",
+    "prompt_generator_ast_sha256": "4827a8b59b265b86bd96be620de00d91dd505ba7ea57b099a8255be29cdffd3e",
+    "template_suffix_sha256": "5ca215121bd0820099042d7d3949d5b77533e17ad13bb8e6104d37029e7ea54d",
+    "pool_size": 1024,
+    "seed": 12345,
+    "prompt_ids_sha256": {
+      "short": "f4cdc551a364cb832a336ee1a874efa2da58c2bb806b69cef6750970425cc451",
+      "medium": "f1ae70a56fbb8e49ac1bc8d43f12e346f5800703940eae835d927f962d8bf4e3",
+      "long": "9579b6d820992b9aebc6ec00308379a2b1527b631ecbcde9cb6a01055d60b458"
+    },
+    "preparation_seconds": 19.564883708953857,
+    "context": 40960,
+    "dtype": "bfloat16",
+    "cpu_weight_offload_gb": 0,
+    "fingerprint": "f304e853917b27e6cf8a85ca",
+    "image": "zihan000/qwen-inference@sha256:37c29b080780178ceeb2f9481118b7e46fd7f08f0371124ac7fca8533dc8473d"
+  },
+  "A_startup_observation": {
+    "actual_gpu_cache_bytes": 34270609408,
+    "actual_gpu_cache_gib": 31.9169921875,
+    "num_blocks": 667,
+    "layout": "LBNHC",
+    "hash_block_size": 784,
+    "cache_hit_alignment_tokens": 784,
+    "group_types": [
+      "MambaSpec",
+      "MambaSpec",
+      "MambaSpec",
+      "FullAttentionSpec"
+    ],
+    "leaf_group_types": [
+      [
+        "MambaSpec"
+      ],
+      [
+        "MambaSpec"
+      ],
+      [
+        "MambaSpec"
+      ],
+      [
+        "FullAttentionSpec"
+      ]
+    ],
+    "backing_storages": 1,
+    "tensor_views": 64,
+    "kernel_block_sizes": null,
+    "layout_fingerprint": "420dc40d28b0e038d171ae3f93f8dbb8a31051da7faa97a07993ec848b7d768e",
+    "weights_load_seconds": 947.95,
+    "model_load_seconds": 951.55,
+    "model_gpu_memory_gib_logged": 51.14,
+    "engine_init_seconds_logged": 84.87,
+    "cache_log_utc": "2026-11-12T19:42:05Z",
+    "engine_init_log_utc": "2026-11-12T19:42:53Z",
+    "live_control_readiness_confirmed": false
+  },
+  "timing": {
+    "lease_start_utc": "2026-11-12T19:18:17Z",
+    "first_override_utc": "2026-11-12T19:19:12Z",
+    "corrected_retry_utc": "2026-11-12T19:24:36Z",
+    "original_args_restored_utc": "2026-11-12T19:43:27Z",
+    "conditional_retry_recovery_deadline_utc": "2026-11-12T20:05:00Z",
+    "authenticated_original_ready_utc": "2026-11-12T20:06:12Z",
+    "cleanup_utc": "2026-11-12T20:14:09Z",
+    "original_absolute_restore_trigger_utc": "2026-11-12T21:48:17Z",
+    "original_exclusive_end_utc": "2026-11-12T22:18:17Z"
+  },
+  "diagnosis": {
+    "initial_supervisor_failure": "UnboundLocalError from local HTTP-client name shadowing http.server; corrected before A engine launch",
+    "concrete_io_error": {
+      "file": "owned session.events.jsonl",
+      "filesystem": "fuse.geesefs",
+      "operation": "read",
+      "exception": "OSError",
+      "errno": 5
+    },
+    "causal_limit": "Slow load and a concrete control-log I/O failure were observed; neither an observer/model initialization failure nor one explanation for every stall is established",
+    "private_logs_preserved": true,
+    "unreadable_event_file_backup": "Earlier partial local copy retained; complete remote read returned EIO"
+  },
+  "restoration": {
+    "time": 1794514324.2060103,
+    "original_model_argv_exact": true,
+    "max_num_seqs": "2",
+    "stock_launcher_processes": 2,
+    "benchmark_processes": 0,
+    "engine_queues": {
+      "vllm:num_requests_running": 0.0,
+      "vllm:num_requests_waiting": 0.0
+    },
+    "gateway_ready": true,
+    "gateway_admission": {
+      "activeRequests": 0,
+      "maxConcurrentRequests": 2,
+      "maxWaitingRequests": 6,
+      "waitingRequests": 0
+    },
+    "account_quotas_enforced": true,
+    "context_tokens": 40960,
+    "adapter_capability": true,
+    "image_capability_version": 1,
+    "metrics_status": 200,
+    "gpu_exporter_healthy": true,
+    "shm_available_bytes": 93999996928,
+    "shm_baseline_bytes": 93999996928,
+    "ram_current_bytes": 62064951296,
+    "swap_bytes": 0,
+    "passed": true
+  },
+  "restoration_smoke": {
+    "at": "2026-11-12T20:06:59.429159+00:00",
+    "pod": "66j3wfha6suokg",
+    "passed": true,
+    "maximumStreams": 2,
+    "maxOutputTokensPerStream": 128,
+    "serverTimeoutSecondsPerStream": 180,
+    "stableExistingPrincipal": true,
+    "promptsOrAnswersPersisted": false,
+    "checks": [
+      {
+        "check": "base_stream",
+        "passed": true,
+        "status": 200,
+        "contentCharacters": 5,
+        "finishReason": "stop",
+        "seconds": 64.992,
+        "adapterEnabled": false,
+        "inputTokens": 42,
+        "completionTokens": 2,
+        "timings": {
+          "contextFitMs": 9.865,
+          "gatewayFirstContentMs": 64861.114,
+          "gatewayTotalMs": 64918.364,
+          "upstreamFirstContentMs": 64848.487
+        }
+      },
+      {
+        "check": "adapter_stream",
+        "passed": true,
+        "status": 200,
+        "contentCharacters": 5,
+        "finishReason": "stop",
+        "seconds": 9.694,
+        "adapterEnabled": true,
+        "inputTokens": 42,
+        "completionTokens": 2,
+        "timings": {
+          "contextFitMs": 7.04,
+          "gatewayFirstContentMs": 9535.427,
+          "gatewayTotalMs": 9630.668,
+          "upstreamFirstContentMs": 9525.163
+        }
+      }
+    ],
+    "healthBefore": {
+      "phase": "before",
+      "ready": true,
+      "model": "qwen-bf16",
+      "contextTokens": 40960,
+      "accountQuotaVersion": 1,
+      "accountQuotasEnforced": true,
+      "adapterToggleVersion": 1,
+      "adapterToggleAvailable": true,
+      "imageInputVersion": 1,
+      "webSearchVersion": 1,
+      "webProfiles": [
+        {
+          "model": "qwen-bf16",
+          "useAdapter": true,
+          "available": false,
+          "reason": "unverified_model"
+        },
+        {
+          "model": "qwen-bf16-base",
+          "useAdapter": false,
+          "available": true,
+          "reason": "ready"
+        }
+      ],
+      "maxConcurrentRequests": 2,
+      "maxWaitingRequests": 6
+    },
+    "healthAfter": {
+      "phase": "after",
+      "ready": true,
+      "model": "qwen-bf16",
+      "contextTokens": 40960,
+      "accountQuotaVersion": 1,
+      "accountQuotasEnforced": true,
+      "adapterToggleVersion": 1,
+      "adapterToggleAvailable": true,
+      "imageInputVersion": 1,
+      "webSearchVersion": 1,
+      "webProfiles": [
+        {
+          "model": "qwen-bf16",
+          "useAdapter": true,
+          "available": false,
+          "reason": "unverified_model"
+        },
+        {
+          "model": "qwen-bf16-base",
+          "useAdapter": false,
+          "available": true,
+          "reason": "ready"
+        }
+      ],
+      "maxConcurrentRequests": 2,
+      "maxWaitingRequests": 6
+    },
+    "seconds": 75.505
+  },
+  "cleanup": {
+    "time": 1794514449.518309,
+    "owned_directory_removed": true,
+    "benchmark_processes": 0,
+    "model_and_other_volume_files_preserved": true,
+    "configuration_equal": {
+      "args": true,
+      "env": true,
+      "image": true,
+      "ports": true,
+      "mounts": true,
+      "disk": true,
+      "registry": true
+    }
+  },
+  "validation": {
+    "local_experiment_tests": 12,
+    "local_existing_benchmark_tests": 16,
+    "source_commit": "d73affd62d742b0465ddc75eac468eca3501150c",
+    "ci_url": "https://github.com/alstomli/llm-inference-server/actions/runs/43297558568",
+    "ci_conclusion": "success",
+    "best_effort_logging_fix_live_deployed": false
+  },
+  "unexecuted_redesign": {
+    "included_in_pr": false,
+    "checkpoint_copy_performed": false,
+    "cache_advice_performed": false,
+    "local_stage_or_offload_release_validated": false
+  },
+  "missing_evidence": [
+    "A/B matched runtime layouts",
+    "CPU cache store/retrieve",
+    "unique-request preemption resume",
+    "cache identity/correctness under CPU restoration",
+    "TTFT/ITL/TPOT/E2E comparison",
+    "offload overhead or speedup",
+    "64GiB buffer release",
+    "image/video offload"
+  ],
+  "charts_created": false
+}
