@@ -211,6 +211,9 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(r["chat_capacity"] is None for r in analysis["configuration_groups"].values()))
         self.assertEqual(analysis["configuration_groups"]["unknown|seq=256|batch=0"]["knee"]["short"], 8)
         self.assertTrue((Path(self.tmp.name) / "aggregate.csv").exists())
+        (Path(self.tmp.name) / 'scenario-classifications.json').write_text(json.dumps({'short':{'measurement_state':'cold_mixed'}}))
+        classified=capacity.analyze(self.tmp.name)
+        self.assertNotIn('short',classified['configuration_groups']['unknown|seq=256|batch=0']['knee'])
 
     def test_writer_refuses_to_overwrite_existing_evidence(self):
         config = capacity.Config()

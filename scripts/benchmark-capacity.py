@@ -491,6 +491,10 @@ def analyze(root):
     rows = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(Path(root).glob("*.summary.json"))]
     if not rows:
         return {"scenarios": [], "knee": {}, "chat_capacity": None}
+    classification_path = Path(root) / "scenario-classifications.json"
+    classifications = json.loads(classification_path.read_text()) if classification_path.exists() else {}
+    for row in rows:
+        row["measurement_state"] = classifications.get(row["config"]["name"], {}).get("measurement_state", "steady")
     groups = {}
     for row in rows:
         c = row["config"]
@@ -499,7 +503,8 @@ def analyze(root):
     group_results = {}
     for group, scenarios in groups.items():
         measured = [r for r in scenarios if r["config"]["scenario_kind"] == "capacity"
-                    and r["config"]["force_length"] and not r["config"]["arrival_rate"]]
+                    and r["config"]["force_length"] and not r["config"]["arrival_rate"]
+                    and r["measurement_state"] == "steady"]
         knee = {}
         for workload in WORKLOADS:
             eligible = [r for r in measured if r["config"]["workload"] == workload and r["success_rate"] >= .99]

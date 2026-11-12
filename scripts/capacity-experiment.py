@@ -47,7 +47,7 @@ async def prepare_scenario(session):
     # production CompletionRequest and isolates every request without changing
     # production security settings or depending on unavailable admin routes.
 
-async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,wall=None):
+async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,wall=None,allow_overload=False):
     logical_name=name
     if ATTEMPT:name += '-retry'+str(ATTEMPT)
     remaining=STOP-time.time()
@@ -60,13 +60,16 @@ async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,w
                  force_length=force,max_num_seqs=conf['sequences'],max_num_batched_tokens=conf['batched_tokens'],
                  runtime_fingerprint=RUNTIME['fingerprint'],cache_namespace=LEASE['lease_id'],scenario_kind=('warmup' if name.startswith('warm-') else 'natural_stop' if not force else 'sustained' if rate else 'tuning' if name.startswith('batch-') else 'capacity'))
     candidates=[RESULTS/(logical_name+'.summary.json'),*RESULTS.glob(logical_name+'-retry*.summary.json')]
+    classifications=json.loads((RESULTS/'scenario-classifications.json').read_text()) if (RESULTS/'scenario-classifications.json').exists() else {}
     for path in sorted((p for p in candidates if p.exists()),key=lambda p:p.stat().st_mtime,reverse=True):
         try:existing=json.loads(path.read_text())
         except ValueError:continue
+        if classifications.get(existing['config']['name'],{}).get('measurement_state')=='cold_mixed':continue
         if b.completed_scenario_matches(existing,cfg,LEASE['lease_id']):
             event('scenario_resumed',name=existing['config']['name'],outcomes=existing['outcomes'],exact_config_and_isolation_verified=True)
             history.append(existing);return existing
     await prepare_scenario(SESSION)
+    baseline=await counters()
     event('scenario_start',name=name,workload=workload,concurrency=c,rate=rate,config=conf,duration=cfg.duration)
     runner=b.Runner(cfg,PROMPTS,b.Writer(RESULTS,cfg),api_key=os.getenv('VLLM_API_KEY'))
     async def saturation_probe():
@@ -80,10 +83,16 @@ async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,w
           output_tokens_s=summary['output_tokens_s'],ttft_p95_s=summary['ttft_s']['p95'],tpot_p95_s=summary['avg_tpot_s']['p95'],stopped=summary['stopped'])
     assert summary['all_outcomes_accounted'],'Missing outcomes'
     if not await healthy(SESSION):raise RuntimeError('Engine lost health')
-    if summary['stopped']=='failure_rate_exceeded_5_percent':raise RuntimeError('Failure threshold')
-    if cfg.scenario_kind=='warmup' and summary['success_rate']!=1:raise RuntimeError('Payload preflight failed')
+    overloaded=summary['stopped']=='failure_rate_exceeded_5_percent' or (cfg.scenario_kind=='warmup' and summary['success_rate']!=1)
     # Ensure no accepted requests remain active before the next scenario.
     await drain()
+    final=await counters()
+    preemptions=max(0,final.get('num_preemptions_total',0)-baseline.get('num_preemptions_total',0))
+    summary['controller_overload']=overloaded
+    summary['controller_preemptions_delta']=preemptions
+    (RESULTS/(name+'.control.json')).write_text(json.dumps({'baseline':baseline,'final':final,'overload':overloaded,'preemptions_delta':preemptions,'engine_health_and_drain_verified':True}))
+    if overloaded or preemptions:event('stage_capacity_boundary',name=name,overload=overloaded,preemptions_delta=preemptions,engine_health_and_drain_verified=True)
+    if overloaded and not allow_overload:raise RuntimeError('Failure threshold')
     return summary
 
 async def gpu(label):
@@ -105,7 +114,7 @@ async def counters():
             pieces=line.rsplit(' ',1)
             if len(pieces)!=2:continue
             key=pieces[0].split('{')[0].removeprefix('vllm:')
-            if key in ['num_requests_running','num_requests_waiting','prompt_tokens_total','generation_tokens_total']:
+            if key in ['num_requests_running','num_requests_waiting','prompt_tokens_total','generation_tokens_total','num_preemptions_total']:
                 values[key]=values.get(key,0)+float(pieces[1])
     except (aiohttp.ClientError,ValueError,TimeoutError):pass
     return values
@@ -178,17 +187,25 @@ async def main():
         for c in [1,2,4,8,16,32,64,128,256]:
             if c>ceiling or time.time()+200>sweep_end:
                 event('skipped',name='medium-sweep-'+str(c),reason='ceiling_or_sweep_budget');break
-            sample=await run('medium-sweep-'+str(c),'medium',c,duration=120,wall=min(300,sweep_end-time.time()))
+            if c>1:
+                warm=await run('warm-shape-'+str(c),'medium',c,duration=1,max_requests=c,wall=min(180,sweep_end-time.time()),allow_overload=True)
+                if warm is None or warm.get('controller_overload') or warm.get('controller_preemptions_delta',0)>0:
+                    event('sweep_stop',reason='warm_shape_capacity_boundary',concurrency=c);break
+            sample=await run('medium-sweep-'+str(c),'medium',c,duration=120 if c==1 else 90,wall=min(270,sweep_end-time.time()),allow_overload=True)
             if sample is None:break
             sweep.append(sample)
+            if sample.get('controller_overload') or sample.get('controller_preemptions_delta',0)>0:
+                event('sweep_stop',reason='measured_capacity_boundary',concurrency=c);break
             if previous and sample['output_tokens_s']<previous*1.05:low_gains+=1
             else:low_gains=0
             previous=sample['output_tokens_s']
             if low_gains>=2:
                 event('sweep_stop',reason='two_consecutive_gains_below_5_percent',concurrency=c);break
         assert sweep,'No primary sweep evidence'
-        peak=max(s['output_tokens_s'] for s in sweep)
-        knee=min(s['config']['concurrency'] for s in sweep if s['output_tokens_s']>=peak*.95)
+        stable=[s for s in sweep if s['success_rate']>=.99 and not s.get('controller_overload') and not s.get('controller_preemptions_delta',0)]
+        assert stable,'No stable primary sweep evidence'
+        peak=max(s['output_tokens_s'] for s in stable)
+        knee=min(s['config']['concurrency'] for s in stable if s['output_tokens_s']>=peak*.95)
         provisional=[s['config']['concurrency'] for s in sweep if s['success_rate']>=.99 and (s['ttft_s']['p95'] or 1e9)<=5 and (s['avg_tpot_s']['p95'] or 1e9)<=.1]
         candidate=max(provisional) if provisional else 1
         event('primary_boundary',knee=knee,provisional_chat_candidate=candidate,ceiling=ceiling)
