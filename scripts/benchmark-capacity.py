@@ -192,6 +192,19 @@ def aggregate(config, records, elapsed, peak_outstanding=0, peak_backlog=0, stop
     return result
 
 
+def completed_scenario_matches(summary, expected, cache_namespace):
+    """Reuse only complete, successful evidence from the exact same experiment."""
+    keys = ("model", "workload", "concurrency", "duration", "request_deadline", "max_requests",
+            "arrival_rate", "max_backlog", "seed", "force_length", "max_num_seqs",
+            "max_num_batched_tokens", "runtime_fingerprint", "scenario_kind")
+    previous = summary.get("config", {})
+    return (all(previous.get(key) == getattr(expected, key) for key in keys)
+            and summary.get("all_outcomes_accounted") is True and not summary.get("stopped")
+            and summary.get("outcomes", 0) > 0 and summary.get("successful") == summary.get("outcomes")
+            and summary.get("cache_namespace") == cache_namespace
+            and summary.get("cache_isolation", "").startswith("unique session/scenario/request"))
+
+
 class Runner:
     def __init__(self, config, prompts, writer, *, api_key=None):
         config.validate()

@@ -40,7 +40,7 @@ async def healthy(session):
 
 HEADERS={'Authorization':'Bearer '+os.environ['VLLM_API_KEY']} if os.getenv('VLLM_API_KEY') else {}
 
-async def reset_cache(session):
+async def prepare_scenario(session):
     assert await healthy(session),'Engine unhealthy before scenario'
     await drain()
     # vLLM0.32 reset routes are dev-mode-only. Unique cache_salt is supported by
@@ -48,16 +48,25 @@ async def reset_cache(session):
     # production security settings or depending on unavailable admin routes.
 
 async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,wall=None):
+    logical_name=name
     if ATTEMPT:name += '-retry'+str(ATTEMPT)
     remaining=STOP-time.time()
     if remaining<45:
         event('skipped',name=name,reason='global_budget');return None
-    conf=config();await reset_cache(SESSION)
+    conf=config()
     wall=min(wall or duration+180,remaining)
     cfg=b.Config(name=name,workload=workload,concurrency=c,duration=min(duration,max(1,wall-15)),wall_seconds=wall,
                  max_requests=max_requests,arrival_rate=rate,max_backlog=min(1024,max(16,c*2)),seed=12345,
                  force_length=force,max_num_seqs=conf['sequences'],max_num_batched_tokens=conf['batched_tokens'],
                  runtime_fingerprint=RUNTIME['fingerprint'],cache_namespace=LEASE['lease_id'],scenario_kind=('warmup' if name.startswith('warm-') else 'natural_stop' if not force else 'sustained' if rate else 'tuning' if name.startswith('batch-') else 'capacity'))
+    candidates=[RESULTS/(logical_name+'.summary.json'),*RESULTS.glob(logical_name+'-retry*.summary.json')]
+    for path in sorted((p for p in candidates if p.exists()),key=lambda p:p.stat().st_mtime,reverse=True):
+        try:existing=json.loads(path.read_text())
+        except ValueError:continue
+        if b.completed_scenario_matches(existing,cfg,LEASE['lease_id']):
+            event('scenario_resumed',name=existing['config']['name'],outcomes=existing['outcomes'],exact_config_and_isolation_verified=True)
+            history.append(existing);return existing
+    await prepare_scenario(SESSION)
     event('scenario_start',name=name,workload=workload,concurrency=c,rate=rate,config=conf,duration=cfg.duration)
     runner=b.Runner(cfg,PROMPTS,b.Writer(RESULTS,cfg),api_key=os.getenv('VLLM_API_KEY'))
     async def saturation_probe():
@@ -73,7 +82,7 @@ async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,w
     if not await healthy(SESSION):raise RuntimeError('Engine lost health')
     if summary['stopped']=='failure_rate_exceeded_5_percent':raise RuntimeError('Failure threshold')
     if cfg.scenario_kind=='warmup' and summary['success_rate']!=1:raise RuntimeError('Payload preflight failed')
-    # Ensure no accepted requests remain active before resetting cache/config.
+    # Ensure no accepted requests remain active before the next scenario.
     await drain()
     return summary
 
@@ -111,7 +120,7 @@ async def drain():
 
 async def pair(phase,repetition):
     if time.time()>min(STOP,STARTED+4500):return
-    name=f'pair-{phase}-{repetition}';await reset_cache(SESSION);conf=config()
+    name=f'pair-{phase}-{repetition}';await prepare_scenario(SESSION);conf=config()
     cfg=b.Config(name=name,workload='long',concurrency=2,duration=180,wall_seconds=200,
                  max_num_seqs=conf['sequences'],max_num_batched_tokens=conf['batched_tokens'],runtime_fingerprint=RUNTIME['fingerprint'],scenario_kind='stagger')
     runner=b.Runner(cfg,PROMPTS,b.Writer(RESULTS,cfg),api_key=os.getenv('VLLM_API_KEY'))
@@ -165,7 +174,7 @@ async def main():
         await run('warm-long','long',1,duration=60,max_requests=2,wall=90)
         await run('natural-stop-validation','short',2,duration=120,max_requests=12,force=False,wall=180)
         ceiling=config()['sequences'];sweep=[];low_gains=0;previous=None
-        sweep_end=min(STARTED+3000,STOP-2100)
+        sweep_end=min(STARTED+3900,STOP-1800)
         for c in [1,2,4,8,16,32,64,128,256]:
             if c>ceiling or time.time()+200>sweep_end:
                 event('skipped',name='medium-sweep-'+str(c),reason='ceiling_or_sweep_budget');break
@@ -183,17 +192,7 @@ async def main():
         provisional=[s['config']['concurrency'] for s in sweep if s['success_rate']>=.99 and (s['ttft_s']['p95'] or 1e9)<=5 and (s['avg_tpot_s']['p95'] or 1e9)<=.1]
         candidate=max(provisional) if provisional else 1
         event('primary_boundary',knee=knee,provisional_chat_candidate=candidate,ceiling=ceiling)
-        # Verify both short and medium at the same exact settings, >=100 outcomes.
-        await run('validate-medium-'+str(candidate),'medium',candidate,duration=420,max_requests=100,wall=540)
-        await run('validate-short-'+str(candidate),'short',candidate,duration=420,max_requests=100,wall=540)
-        for c in sorted({max(1,knee//2),knee,min(ceiling,knee*2)}):
-            if time.time()>STARTED+3900:break
-            await run('short-boundary-'+str(c),'short',c,duration=75,wall=180)
-            await run('long-boundary-'+str(c),'long',c,duration=75,wall=240)
         mixed=await run('mixed-boundary','mixed',min(ceiling,max(candidate,knee)),duration=150,wall=330)
-        for rep in range(3):
-            for phase in ['simultaneous','prefill','decode']:
-                await pair(phase,rep)
         if mixed:
             rate=mixed['completed_requests_s']
             for ratio in [.5,.8,1,1.2]:
@@ -201,14 +200,27 @@ async def main():
                     event('skipped',name='open-loop-'+str(ratio),reason='sustain_budget');continue
                 await run('open-loop-'+str(ratio),'mixed',min(ceiling,max(candidate,knee)),duration=100,
                           rate=rate*ratio,wall=min(280,STOP-600-time.time()))
+        # Both workloads need100 actual outcomes for a validated chat capacity.
+        # If the remaining wall budget prevents that, retain provisional evidence.
+        for workload in ['medium','short']:
+            remaining=STOP-time.time()
+            if remaining<120:
+                event('skipped',name='validate-'+workload,reason='validation_budget');continue
+            allowance=min(540,max(120,remaining/2))
+            await run('validate-'+workload+'-'+str(candidate),workload,candidate,
+                      duration=max(1,allowance-120),max_requests=100,wall=allowance)
+        for c in sorted({max(1,knee//2),knee,min(ceiling,knee*2)}):
+            if time.time()>STOP-600:
+                event('skipped',name='homogeneous-boundary-'+str(c),reason='extras_budget');continue
+            await run('short-boundary-'+str(c),'short',c,duration=75,wall=180)
+            await run('long-boundary-'+str(c),'long',c,duration=75,wall=240)
+        for rep in range(3):
+            for phase in ['simultaneous','prefill','decode']:
+                if time.time()>STOP-420:
+                    event('skipped',name=f'pair-{phase}-{rep}',reason='stagger_budget');continue
+                await pair(phase,rep)
         # The observed9.8min weight reload and initial setup overrun make extra
         # restarts lower priority than validated primary/sustained evidence.
-        for tokens in []:
-            if time.time()>STOP-1200:
-                event('skipped',name='batch-'+str(tokens),reason='restart_budget');continue
-            if not await change_batch(tokens):break
-            await run('warm-batch-'+str(tokens),'mixed',2,duration=60,max_requests=4,wall=120)
-            await run('batch-'+str(tokens),'mixed',min(ceiling,max(candidate,knee)),duration=120,max_requests=200,wall=240)
         event('experiment_complete',scenarios=len(history),knee=knee,candidate=candidate)
         event('skipped',name='batched-token-tuning',reason='observed_reload_cost_and_setup_overrun')
 

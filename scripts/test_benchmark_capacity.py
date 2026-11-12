@@ -219,6 +219,21 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(FileExistsError):
             capacity.Writer(self.tmp.name, config)
 
+    def test_resume_requires_exact_completed_successful_isolated_evidence(self):
+        config = capacity.Config(cache_namespace='session-one')
+        summary = {'config':capacity.asdict(config),'outcomes':100,'successful':100,
+                   'all_outcomes_accounted':True,'stopped':None,'cache_namespace':'session-one',
+                   'cache_isolation':'unique session/scenario/request prefix-cache salts'}
+        self.assertTrue(capacity.completed_scenario_matches(summary,config,'session-one'))
+        for key,value in [('max_num_seqs',256),('max_num_batched_tokens',8192),('runtime_fingerprint','other'),
+                          ('force_length',False),('concurrency',2),('duration',61)]:
+            changed=json.loads(json.dumps(summary));changed['config'][key]=value
+            self.assertFalse(capacity.completed_scenario_matches(changed,config,'session-one'))
+        for key,value in [('all_outcomes_accounted',False),('stopped','stage_wall_deadline'),('successful',99),
+                          ('cache_namespace','other-session'),('cache_isolation','unknown')]:
+            changed={**summary,key:value}
+            self.assertFalse(capacity.completed_scenario_matches(changed,config,'session-one'))
+
     def test_validation_excludes_public_targets_and_unbounded_outstanding(self):
         for config in (capacity.Config(url="https://public.invalid"), capacity.Config(concurrency=1025),
                        capacity.Config(url="http://secret@127.0.0.1"), capacity.Config(request_deadline=181)):
