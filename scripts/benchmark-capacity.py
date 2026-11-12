@@ -19,6 +19,7 @@ import signal
 import statistics
 import subprocess
 import time
+import uuid
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -51,8 +52,14 @@ class Config:
     max_num_batched_tokens: int = 0
     runtime_fingerprint: str = "unknown"
     scenario_kind: str = "capacity"
+    cache_namespace: str = "auto"
 
     def validate(self):
+        for key in ("duration", "wall_seconds", "request_deadline", "arrival_rate", "metrics_interval"):
+            if not math.isfinite(getattr(self, key)):
+                raise ValueError("Timing and rate values must be finite")
+        if self.metrics_interval < .05:
+            raise ValueError("Metrics sampling interval must be at least50ms")
         parsed = urlsplit(self.url)
         if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
             raise ValueError("Only private loopback HTTP targets are allowed")
@@ -101,8 +108,8 @@ class SSE:
 class Prompts:
     """Precompute exact tokenizer-verified chat-template IDs before timing starts.
 
-    Unique random user prefixes prevent inter-request prefix-cache reuse; a fresh
-    prefix cache is also required between scenarios. No corpus is persisted.
+    Unique random user prefixes and per-request engine cache salts prevent
+    inter-request prefix-cache reuse. No corpus is persisted by the runner.
     """
     def __init__(self, tokenizer, seed, size=2048):
         self.seed, self.size = seed, size
@@ -196,6 +203,7 @@ class Runner:
         self.stop_reason = None
         self.next_id = 0
         self.rng = random.Random(config.seed)
+        self.cache_namespace = uuid.uuid4().hex if config.cache_namespace == "auto" else config.cache_namespace
 
     def workload(self):
         return self.rng.choices(list(WORKLOADS), weights=[50, 35, 15])[0] if self.config.workload == "mixed" else self.config.workload
@@ -232,7 +240,8 @@ class Runner:
                 row["client_queue_wait_s"] = row["submitted_s"] - row["enqueued_s"]
                 payload = {"model": self.config.model, "prompt": ids, "max_tokens": output,
                            "temperature": 0, "seed": self.config.seed + row["id"], "stream": True,
-                           "stream_options": {"include_usage": True}, "ignore_eos": self.config.force_length}
+                           "stream_options": {"include_usage": True}, "ignore_eos": self.config.force_length,
+                           "cache_salt": hashlib.sha256(f"{self.cache_namespace}/{self.config.seed}/{self.config.name}/{row['id']}".encode()).hexdigest()}
                 if self.config.force_length:
                     payload["min_tokens"] = output
                 self.outstanding += 1
@@ -454,6 +463,8 @@ class Runner:
             result = aggregate(self.config, self.records, time.monotonic() - self.started,
                                self.peak_outstanding, self.peak_backlog, self.stop_reason)
             result["scheduled_requests"] = self.next_id
+            result["cache_isolation"] = "unique session/scenario/request prefix-cache salts plus unique early prompt prefixes"
+            result["cache_namespace"] = self.cache_namespace
             result["all_outcomes_accounted"] = self.next_id == len(self.records)
             result["scheduled_arrival_span_s"] = max((r["scheduled_s"] for r in self.records), default=0)
             result["arrival_window_output_tokens_s"] = sum(r.get("completion_tokens",0) for r in self.records
@@ -537,7 +548,8 @@ def parser():
         elif type(field.default) is bool:
             p.add_argument("--" + key.replace("_", "-"), action=argparse.BooleanOptionalAction, default=field.default)
         else:
-            p.add_argument("--" + key.replace("_", "-"), type=type(field.default), default=field.default)
+            kind = float if key in ("duration", "wall_seconds", "request_deadline", "arrival_rate", "metrics_interval") else type(field.default)
+            p.add_argument("--" + key.replace("_", "-"), type=kind, default=field.default)
     return p
 
 

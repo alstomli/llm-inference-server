@@ -38,8 +38,10 @@ The short, medium, and long workloads use exactly 512/128, 2048/256, and
 8192/512 input/output tokens. Mixed workload selection uses weights 50/35/15.
 Synthetic text is seeded and tokenized before timing, with the installed chat
 template and thinking disabled. The exact generation suffix is retained. Unique
-early user prefixes and a verified empty prefix cache between scenarios isolate
-cross-request reuse. The runner sends token IDs to `/v1/completions` so input
+early user prefixes and unique session/scenario/request `cache_salt` values
+isolate cross-request reuse. This uses the supported production completions
+schema; cache-reset routes are development-mode-only in vLLM0.32. The runner
+sends token IDs to `/v1/completions` so input
 length is exact. Forced-length mode sets `ignore_eos` and `min_tokens`; the usage
 frame must confirm exact input/output counts. `--natural-stop` is a separate
 validation mode, not evidence about forced-length throughput.
@@ -51,6 +53,8 @@ cancel remaining work and preserve partial reports. Every scheduled request
 must have an outcome. HTTP errors, malformed/truncated SSE, missing usage,
 token-count mismatches, drops, deadlines, and cancellations cannot count as
 success. After at least20 outcomes, over5% failures stop the scenario.
+Latency quantiles use successful requests; every failure remains in the success
+denominator.
 
 Output throughput uses successful output tokens divided by total scenario time,
 including final drain; arrival-window throughput is also reported. Streaming

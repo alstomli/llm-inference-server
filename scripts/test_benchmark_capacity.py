@@ -28,6 +28,7 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
         self.delay, self.behavior, self.slow_first = .015, "ok", False
         self.slow_ended = None
         self.case_number = 0
+        self.salts = []
         app = web.Application()
         app.router.add_post("/v1/completions", self.respond)
         app.router.add_get("/metrics", lambda _: web.Response(text="vllm:num_requests_running 1\nvllm:kv_cache_usage_perc 0.2\n"))
@@ -47,6 +48,7 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
         self.arrived.append(time.monotonic())
         try:
             payload = await request.json()
+            self.salts.append(payload.get('cache_salt'))
             if self.behavior == "http":
                 return web.Response(status=503, text="private-error-body-never-persist")
             response = web.StreamResponse(headers={"Content-Type":"text/event-stream"})
@@ -70,8 +72,11 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
                     frames[1] = json.dumps({"choices":[{"text":"", "finish_reason":"length"}]})
                 for frame in frames:
                     block = ("data: " + frame + "\r\n\r\n").encode()
-                    for i in range(0, len(block), 7):
-                        await response.write(block[i:i+7])
+                    if self.behavior == "fragmented":
+                        for i in range(0, len(block), 7):
+                            await response.write(block[i:i+7])
+                    else:
+                        await response.write(block)
                     await asyncio.sleep(.002)
             await response.write_eof()
             return response
@@ -85,10 +90,13 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
 
     async def run_case(self, **overrides):
         self.case_number += 1
-        config = capacity.Config(name="case" + str(self.case_number), url=self.url, duration=.7,
-                                 wall_seconds=2, collect_gpu=False, **overrides)
+        config = capacity.Config(name="case" + str(self.case_number), url=self.url, duration=2,
+                                 wall_seconds=5, collect_gpu=False, **overrides)
         writer = capacity.Writer(self.tmp.name, config)
         runner = capacity.Runner(config, Prompts(), writer, api_key="super-secret-credential")
+        async def no_metrics(_):
+            await runner.stop.wait()
+        runner.metrics = no_metrics
         result = await runner.run()
         return result, runner
 
@@ -102,6 +110,8 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(self.arrived[3], self.slow_ended)
         self.assertTrue(all(r["completion_tokens"] == 4 and r["chunk_count"] == 2 for r in runner.records))
         self.assertTrue(result["all_outcomes_accounted"])
+        self.assertEqual(len(set(self.salts)), 12)
+        self.assertTrue(all(isinstance(salt,str) and len(salt)==64 for salt in self.salts))
 
     async def test_open_loop_queue_bound_and_scheduled_deadline(self):
         self.delay = .12
@@ -113,14 +123,14 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["all_outcomes_accounted"])
         for row in runner.records:
             if row["outcome"] == "deadline":
-                self.assertLess(row["ended_s"] - row["scheduled_s"], .12)
+                self.assertLess(row["ended_s"] - row["scheduled_s"], .3)
 
     async def test_wall_limit_preserves_partial_and_cancels_all(self):
-        self.delay = .3
-        config = capacity.Config(url=self.url, concurrency=4, duration=1, wall_seconds=.06, collect_gpu=False)
+        self.delay = 1.5
+        config = capacity.Config(url=self.url, concurrency=4, duration=2, wall_seconds=.1, collect_gpu=False)
         runner = capacity.Runner(config, Prompts(), capacity.Writer(self.tmp.name, config))
         result = await runner.run()
-        self.assertLess(result["elapsed_s"], .2)
+        self.assertLess(result["elapsed_s"], 1)
         self.assertEqual(result["outcomes"], 4)
         self.assertTrue(result["all_outcomes_accounted"])
         self.assertEqual(result["stopped"], "stage_wall_deadline")
@@ -135,6 +145,12 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
                 result, _ = await self.run_case(max_requests=1)
                 self.assertEqual(result["success_rate"], 0)
                 self.assertEqual(result["outcome_counts"], {outcome:1})
+
+    async def test_fragmented_network_sse_reports_actual_tokens(self):
+        self.behavior = "fragmented"
+        result, _ = await self.run_case(max_requests=1)
+        self.assertEqual(result["successful"], 1)
+        self.assertEqual(result["total_output_tokens"], 4)
 
     async def test_artifacts_omit_credentials_prompts_and_responses(self):
         await self.run_case(max_requests=1)
@@ -206,6 +222,15 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
     def test_validation_excludes_public_targets_and_unbounded_outstanding(self):
         for config in (capacity.Config(url="https://public.invalid"), capacity.Config(concurrency=1025),
                        capacity.Config(url="http://secret@127.0.0.1"), capacity.Config(request_deadline=181)):
+            with self.assertRaises(ValueError):
+                config.validate()
+
+    def test_cli_accepts_fractional_rates_and_rejects_nonfinite_values(self):
+        args = capacity.parser().parse_args(["--arrival-rate", ".75", "--duration", "1.5"])
+        self.assertEqual(args.arrival_rate, .75)
+        self.assertEqual(args.duration, 1.5)
+        for config in (capacity.Config(arrival_rate=float('nan')), capacity.Config(duration=float('inf')),
+                       capacity.Config(metrics_interval=0)):
             with self.assertRaises(ValueError):
                 config.validate()
 

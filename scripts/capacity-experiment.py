@@ -9,6 +9,9 @@ LEASE=json.loads((ROOT/'lease.json').read_text());RUNTIME=json.loads((ROOT/'runt
 STOP=LEASE['created']+5700
 STARTED=LEASE['created']
 history=[]
+attempt_file=ROOT/'controller.attempt'
+ATTEMPT=int(attempt_file.read_text())+1 if attempt_file.exists() else 0
+attempt_file.write_text(str(ATTEMPT))
 
 class Prompts:
     def __init__(self):
@@ -40,10 +43,12 @@ HEADERS={'Authorization':'Bearer '+os.environ['VLLM_API_KEY']} if os.getenv('VLL
 async def reset_cache(session):
     assert await healthy(session),'Engine unhealthy before scenario'
     await drain()
-    async with session.post('http://127.0.0.1:8000/reset_prefix_cache',headers=HEADERS,timeout=aiohttp.ClientTimeout(total=10)) as r:
-        assert r.status==200,'Prefix reset unavailable'
+    # vLLM0.32 reset routes are dev-mode-only. Unique cache_salt is supported by
+    # production CompletionRequest and isolates every request without changing
+    # production security settings or depending on unavailable admin routes.
 
 async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,wall=None):
+    if ATTEMPT:name += '-retry'+str(ATTEMPT)
     remaining=STOP-time.time()
     if remaining<45:
         event('skipped',name=name,reason='global_budget');return None
@@ -52,7 +57,7 @@ async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,w
     cfg=b.Config(name=name,workload=workload,concurrency=c,duration=min(duration,max(1,wall-15)),wall_seconds=wall,
                  max_requests=max_requests,arrival_rate=rate,max_backlog=min(1024,max(16,c*2)),seed=12345,
                  force_length=force,max_num_seqs=conf['sequences'],max_num_batched_tokens=conf['batched_tokens'],
-                 runtime_fingerprint=RUNTIME['fingerprint'],scenario_kind=('warmup' if name.startswith('warm-') else 'natural_stop' if not force else 'sustained' if rate else 'tuning' if name.startswith('batch-') else 'capacity'))
+                 runtime_fingerprint=RUNTIME['fingerprint'],cache_namespace=LEASE['lease_id'],scenario_kind=('warmup' if name.startswith('warm-') else 'natural_stop' if not force else 'sustained' if rate else 'tuning' if name.startswith('batch-') else 'capacity'))
     event('scenario_start',name=name,workload=workload,concurrency=c,rate=rate,config=conf,duration=cfg.duration)
     runner=b.Runner(cfg,PROMPTS,b.Writer(RESULTS,cfg),api_key=os.getenv('VLLM_API_KEY'))
     async def saturation_probe():
@@ -67,6 +72,7 @@ async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,w
     assert summary['all_outcomes_accounted'],'Missing outcomes'
     if not await healthy(SESSION):raise RuntimeError('Engine lost health')
     if summary['stopped']=='failure_rate_exceeded_5_percent':raise RuntimeError('Failure threshold')
+    if cfg.scenario_kind=='warmup' and summary['success_rate']!=1:raise RuntimeError('Payload preflight failed')
     # Ensure no accepted requests remain active before resetting cache/config.
     await drain()
     return summary
@@ -195,19 +201,42 @@ async def main():
                     event('skipped',name='open-loop-'+str(ratio),reason='sustain_budget');continue
                 await run('open-loop-'+str(ratio),'mixed',min(ceiling,max(candidate,knee)),duration=100,
                           rate=rate*ratio,wall=min(280,STOP-600-time.time()))
-        for tokens in [4096,16384]:
+        # The observed9.8min weight reload and initial setup overrun make extra
+        # restarts lower priority than validated primary/sustained evidence.
+        for tokens in []:
             if time.time()>STOP-1200:
                 event('skipped',name='batch-'+str(tokens),reason='restart_budget');continue
             if not await change_batch(tokens):break
             await run('warm-batch-'+str(tokens),'mixed',2,duration=60,max_requests=4,wall=120)
             await run('batch-'+str(tokens),'mixed',min(ceiling,max(candidate,knee)),duration=120,max_requests=200,wall=240)
         event('experiment_complete',scenarios=len(history),knee=knee,candidate=candidate)
+        event('skipped',name='batched-token-tuning',reason='observed_reload_cost_and_setup_overrun')
+
+async def pause_for_retry():
+    global SESSION
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None),trust_env=False) as SESSION:
+        if not await healthy(SESSION):return False
+        try:await drain()
+        except Exception:return False
+        event('harness_paused',maintenance_active=True,engine_healthy=True,engine_running_waiting_zero=True)
+        until=min(STOP,time.time()+600)
+        while time.time()<until:
+            if not await healthy(SESSION):return False
+            marker=ROOT/'retry.controller'
+            if marker.exists():marker.unlink();return True
+            await asyncio.sleep(2)
+    return False
 
 if __name__=='__main__':
+    failed=False
     try:asyncio.run(main())
-    except BaseException as e:event('experiment_stopped',error_type=type(e).__name__)
+    except BaseException as e:
+        failed=True
+        event('experiment_stopped',error_type=type(e).__name__,fixed_message=str(e) if str(e) in ['Engine unhealthy before scenario','Failure threshold','Payload preflight failed','Engine lost health','Engine did not drain to zero running and waiting'] else 'details suppressed')
     finally:
         try:b.analyze(RESULTS)
         except Exception as e:event('analysis_partial',error_type=type(e).__name__)
+        if failed and asyncio.run(pause_for_retry()):
+            os.execv(sys.executable,[sys.executable,str(ROOT/'experiment.py')])
         (ROOT/'restore.remote').write_text('deadline or completed')
         event('restore_requested')

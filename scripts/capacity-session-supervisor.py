@@ -27,6 +27,7 @@ def spawn(args,env=None,name='service'):
     log.close();return p
 
 def stock():
+    (ROOT/'engine.status.json').write_text(json.dumps({'state':'restoring_stock','benchmark_engine_pid':engine.pid if engine else None}))
     terminate(loadgen)
     for p in children:terminate(p)
     terminate(engine)
