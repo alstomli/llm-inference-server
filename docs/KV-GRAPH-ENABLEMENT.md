@@ -1,5 +1,8 @@
 # Native CPU KV offload and decode CUDA graphs
 
+The [November 13 enablement](KV-GRAPH-ENABLEMENT-2026-11-13.md) passed and
+left both features active on the pinned production runtime.
+
 The launcher supports two independent, default-off settings on the pinned
 vLLM 0.32.0 BF16 stack:
 
