@@ -63,7 +63,7 @@ modified by this temporary args override.
 
 Freeze source and the manifest first. Then arm a fresh external lease, build
 the payload with that lease and the fresh scrubbed argv contract, seal the
-final args digest, verify the external watchdog process, and activate within
+final structured `args` digest, verify the external watchdog process, and activate within
 its freshness guard. The fixed lease stops testing at minute 110, permits
 backup until minute 120, starts restoration no later than minute 120 and ends
 at minute 150. Startup is capped at 35 minutes. OOM, swap growth, unsafe RAM or
@@ -75,6 +75,12 @@ test profile and no adaptive rate or scenario selection.
 The restoration target is the **fresh enabled production snapshot**: native
 64 GiB offload, decode capture sizes `[1,2]`, maximum two sequences and the same
 pinned 0.17.0 image. It is not an older eager/offload-disabled snapshot.
+
+The startup transport explicitly stores `entrypoint=[python3,-c,program]` and
+an empty `cmd` in Runpod's structured JSON args form. A bare shell string would
+only set CMD and leave the image's ENTRYPOINT active. UTF-8 file contents are
+compressed before one outer base64 encoding, retaining exact extracted hashes;
+the builder enforces a conservative 64 KiB args bound.
 
 ## Replay, metrics and completion feed
 

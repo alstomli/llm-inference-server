@@ -90,18 +90,47 @@ class RuntimeTests(unittest.TestCase):
         frozen = runtime.contract(native(), {'VLLM_API_KEY': 'test-only-secret'})
         command = bundle.build_args('/tmp/offline-run', source, {'run_id': 'offline-run', 'lease_id': 'fresh'}, frozen)
         self.assertNotIn('test-only-secret', command)
-        outer = shlex.split(command)
-        program = shlex.split(outer[2])[3]
+        outer = json.loads(command)
+        self.assertEqual(outer['entrypoint'][:2], ['python3', '-c'])
+        self.assertEqual(outer['cmd'], [])
+        self.assertLess(len(command.encode()), 65536)
+        program = outer['entrypoint'][2]
         encoded = ast.literal_eval(program.splitlines()[0].split('=', 1)[1])
         payload = json.loads(zlib.decompress(base64.b64decode(encoded)))
         self.assertEqual(payload['root'], '/tmp/offline-run')
-        self.assertEqual(json.loads(base64.b64decode(payload['files']['lease.json']))['lease_id'], 'fresh')
-        hashes = json.loads(base64.b64decode(payload['files']['source-files.json']))
+        self.assertEqual(json.loads(payload['files']['lease.json'])['lease_id'], 'fresh')
+        hashes = json.loads(payload['files']['source-files.json'])
         for name, digest in hashes.items():
-            self.assertEqual(hashlib.sha256(base64.b64decode(payload['files'][name])).hexdigest(), digest)
+            self.assertEqual(hashlib.sha256(payload['files'][name].encode('utf-8')).hexdigest(), digest)
         self.assertNotIn('lease.json', hashes)
+        self.assertNotIn('test-only-secret', json.dumps(payload))
+        # Execute the exact structured-ENTRYPOINT program under mocks, then
+        # compare every materialized byte. No real supervisor is launched.
+        with tempfile.TemporaryDirectory() as directory:
+            staged = Path(directory) / 'owned-root'
+            fake_pathlib = SimpleNamespace(Path=lambda value: staged)
+            with patch.dict(sys.modules, {'pathlib': fake_pathlib}), patch.object(os, 'execv') as execute, \
+                 patch.object(os, 'O_NOFOLLOW', getattr(os, 'O_NOFOLLOW', 0), create=True), patch.dict(os.environ):
+                exec(compile(program, 'exact-bootstrap', 'exec'), {'__name__': 'bootstrap_offline'})
+                execute.assert_called_once_with(sys.executable, [sys.executable, str(staged / 'combined-capacity-supervisor.py')])
+            for name, text in payload['files'].items():
+                self.assertEqual((staged / name).read_bytes(), text.encode('utf-8'))
+            for name, expected in source.items():
+                self.assertEqual((staged / name).read_bytes(), expected)
         with self.assertRaises(ValueError):
             bundle.build_args('/workspace/not-allowed', source, {'run_id': 'not-allowed'}, frozen)
+
+    def test_compact_transport_preserves_nonascii_utf8_and_rejects_binary(self):
+        source = bundle.files(ROOT)
+        source['unicode-test.txt'] = 'archive 港湾\n'.encode('utf-8')
+        frozen = runtime.contract(native(), {'VLLM_API_KEY': 'test-only-secret'})
+        command = bundle.build_args('/tmp/offline-run', source, {'run_id': 'offline-run'}, frozen)
+        program = json.loads(command)['entrypoint'][2]
+        encoded = ast.literal_eval(program.splitlines()[0].split('=', 1)[1])
+        payload = json.loads(zlib.decompress(base64.b64decode(encoded)))
+        self.assertEqual(payload['files']['unicode-test.txt'].encode('utf-8'), source['unicode-test.txt'])
+        with self.assertRaises(UnicodeDecodeError):
+            bundle.build_args('/tmp/offline-run', {**source, 'bad.bin': b'\xff'}, {'run_id': 'offline-run'}, frozen)
 
 
 class PlanTests(unittest.TestCase):

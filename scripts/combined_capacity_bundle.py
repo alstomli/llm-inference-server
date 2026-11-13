@@ -4,7 +4,6 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import shlex
 import zlib
 
 SOURCES = ['benchmark-capacity.py', 'combined_capacity_runtime.py', 'combined_capacity_measure.py', 'combined-capacity-supervisor.py',
@@ -33,8 +32,10 @@ def build_args(run_root, source, lease, args_contract):
     hashes = {name: hashlib.sha256(data).hexdigest() for name, data in bundle.items()}
     bundle['source-files.json'] = json.dumps(hashes, sort_keys=True, indent=2).encode()
     bundle['lease.json'] = json.dumps(lease, indent=2, allow_nan=False).encode()
-    payload = {'root': run_root, 'files': {name: base64.b64encode(data).decode() for name, data in bundle.items()}}
-    encoded = base64.b64encode(zlib.compress(json.dumps(payload, separators=(',', ':')).encode(), 9)).decode()
+    # Compress the UTF-8 text itself; per-file base64 reduces redundancy and
+    # unnecessarily inflates the startup payload. Decoding round-trips bytes.
+    payload = {'root': run_root, 'files': {name: data.decode('utf-8') for name, data in bundle.items()}}
+    encoded = base64.b64encode(zlib.compress(json.dumps(payload, separators=(',', ':'), ensure_ascii=False).encode('utf-8'), 9)).decode()
     # The payload contains source, numerical plan, fresh lease and scrubbed argv;
     # container secrets remain in the unchanged native environment.
     program = '''import base64,json,os,pathlib,sys,zlib
@@ -44,10 +45,16 @@ for name,value in p['files'].items():
  path=root/name
  if path.parent!=root:path.parent.mkdir(mode=0o700,exist_ok=True)
  fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
- with os.fdopen(fd,'wb') as stream:stream.write(base64.b64decode(value))
+ with os.fdopen(fd,'wb') as stream:stream.write(value.encode('utf-8'))
 (root/'bin/vllm').chmod(0o700)
 os.environ['CAPACITY_SESSION_ROOT']=str(root)
 os.execv(sys.executable,[sys.executable,str(root/'combined-capacity-supervisor.py')])
 '''
     program = 'PAYLOAD=' + repr(encoded) + '\n' + program
-    return 'bash -lc ' + shlex.quote('exec python3 -c ' + shlex.quote(program))
+    # Runpod stores this structured args form as an explicit ENTRYPOINT
+    # override. A bare shell string is only CMD and would be passed to the
+    # image's stock start-server ENTRYPOINT, which ignores those arguments.
+    command = json.dumps({'entrypoint': ['python3', '-c', program], 'cmd': []}, separators=(',', ':'))
+    if len(command.encode('utf-8')) >= 65536:
+        raise ValueError('Bootstrap exceeds the conservative64KiB transport bound')
+    return command
