@@ -50,8 +50,37 @@ args=(serve "$MODEL_ID"
   --custom-histogram-buckets '{"time_to_first_token":[0.001,0.005,0.01,0.02,0.04,0.06,0.08,0.1,0.2,0.25,0.3,0.4,0.5,0.6,0.7,0.75,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0,2.1,2.2,2.3,2.4,2.5,2.6,2.7,2.8,2.9,3.0,3.1,3.2,3.3,3.4,3.5,3.6,3.7,3.8,3.9,4.0,4.1,4.2,4.3,4.4,4.5,4.6,4.7,4.8,4.9,5.0,5.1,5.2,5.3,5.4,5.5,5.6,5.7,5.8,5.9,6.0,6.1,6.2,6.3,6.4,6.5,6.6,6.7,6.8,6.9,7.0,7.1,7.2,7.3,7.4,7.5,7.6,7.7,7.8,7.9,8.0,8.1,8.2,8.3,8.4,8.5,8.6,8.7,8.8,8.9,9.0,9.1,9.2,9.3,9.4,9.5,9.6,9.7,9.8,9.9,10.0,20.0,40.0,80.0,160.0,640.0,2560.0]}'
   )
 args+=(--dtype bfloat16 --cpu-offload-gb "${CPU_OFFLOAD_GB:-40}"
-  --reasoning-parser qwen3 --enforce-eager
+  --reasoning-parser qwen3
   --safetensors-load-strategy eager --limit-mm-per-prompt '{"image":1,"video":0}')
+# Both features are opt-in. Weight offload is independent of the native KV tier.
+case "${KV_OFFLOAD_CPU_GIB:-0}" in
+  0) ;;
+  64)
+    python3 /usr/local/lib/kv-runtime-config.py check-memory
+    args+=(--mamba-cache-mode align --kv-transfer-config '{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":68719476736,"blocks_per_chunk":1,"offload_prompt_only":false}}')
+    ;;
+  *) echo 'KV_OFFLOAD_CPU_GIB must be 0 or 64.' >&2; exit 1 ;;
+esac
+case "${CUDA_DECODE_GRAPHS:-false}" in
+  false|0) args+=(--enforce-eager) ;;
+  true|1)
+    [[ "${CPU_OFFLOAD_GB:-40}" == 0 && "$MAX_NUM_SEQS" == 2 ]] || {
+      echo 'Decode graphs require zero weight offload and the verified two-sequence ceiling.' >&2; exit 1;
+    }
+    args+=(--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[1,2]}' --cudagraph-metrics)
+    ;;
+  *) echo 'CUDA_DECODE_GRAPHS must be true or false.' >&2; exit 1 ;;
+esac
+if [[ "${KV_RUNTIME_OBSERVE:-false}" == true ]]; then
+  args+=(--worker-cls kv_runtime.Worker)
+fi
+if [[ "${KV_RUNTIME_PROOF:-false}" == true ]]; then
+  [[ "$host" == 127.0.0.1 && "${KV_RUNTIME_OBSERVE:-false}" == true ]] || {
+    echo 'KV proof requires the local observed engine.' >&2; exit 1;
+  }
+  args+=(--middleware kv_runtime.ProofMiddleware)
+  python3 /usr/local/lib/kv-runtime-config.py prepare-proof
+fi
 if [[ -n "$lora_module" ]]; then
   args+=(--enable-lora --max-lora-rank "${MAX_LORA_RANK:-8}" --lora-modules "$lora_module")
 fi

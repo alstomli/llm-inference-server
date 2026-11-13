@@ -70,12 +70,14 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
                     'VLLM_BASE_MODEL_NAME', 'LORA_ADAPTER_PATH', 'MAX_LORA_RANK',
                     'CPU_OFFLOAD_GB', 'MAX_NUM_SEQS', 'MAX_MODEL_LEN', 'CHAT_GATEWAY_IMPLEMENTATION',
                     'CHAT_WEB_SEARCH_ENABLED', 'CHAT_WEB_SEARCH_MODEL_VERIFIED',
-                    'CHAT_WEB_SEARCH_TOOL_PARSER', 'CHAT_WEB_SEARCH_VERIFIED_MODEL'):
+                    'CHAT_WEB_SEARCH_TOOL_PARSER', 'CHAT_WEB_SEARCH_VERIFIED_MODEL',
+                    'KV_OFFLOAD_CPU_GIB', 'CUDA_DECODE_GRAPHS', 'KV_RUNTIME_OBSERVE', 'KV_RUNTIME_PROOF'):
             self.env.pop(key, None)
         # Disposable BF16 checkpoint; ordinary tests leave the profile unset to exercise its default.
         self.env.update(self.bf16_environment())
         self.env.pop('MODEL_PROFILE', None)
         self.process = None
+        self.launcher = '/usr/local/bin/start-server'
 
     def tearDown(self):
         if self.process and self.process.poll() is None:
@@ -86,7 +88,7 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
 
     def start(self, **overrides):
         self.process = subprocess.Popen(
-            ['/usr/local/bin/start-server'], env={**self.env, **overrides},
+            [self.launcher], env={**self.env, **overrides},
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
 
@@ -157,12 +159,83 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.assertNotIn('--enable-lora', args)
         self.assertNotIn('--enable-auto-tool-choice', args)
         self.assertNotIn('--tool-call-parser', args)
+        self.assertIn('--enforce-eager', args)
+        self.assertNotIn('--kv-transfer-config', args)
+        self.assertNotIn('--compilation-config', args)
         buckets = json.loads(args[args.index('--custom-histogram-buckets') + 1])
         self.assertEqual(set(buckets), {'time_to_first_token'})
         expected = [0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.25, 0.75]
         expected += [i / 10 for i in range(1, 101)]
         expected += [20.0, 40.0, 80.0, 160.0, 640.0, 2560.0]
         self.assertEqual(buckets['time_to_first_token'], sorted(expected))
+
+    def test_explicit_native_offload_and_decode_graphs_preserve_serving_limits(self):
+        # Resource guard has its own boundary tests. This fixture isolates argv
+        # construction from the CI runner's intentionally small shared memory.
+        guard = self.root / 'guard.py'
+        guard.write_text('pass\n')
+        launcher = self.root / 'start-server'
+        launcher.write_text(Path(self.launcher).read_text().replace('/usr/local/lib/kv-runtime-config.py', str(guard)))
+        launcher.chmod(0o755)
+        self.launcher = str(launcher)
+        args_file = self.root / 'feature-args.json'
+        self.start(METRICS_ENABLED='false', FAKE_ARG_FILE=str(args_file), CPU_OFFLOAD_GB='0',
+                   KV_OFFLOAD_CPU_GIB='64', CUDA_DECODE_GRAPHS='true')
+        self.ready(8000)
+        args = json.loads(args_file.read_text())
+        self.assertNotIn('--enforce-eager', args)
+        self.assertEqual(args[args.index('--max-num-seqs') + 1], '2')
+        self.assertEqual(args[args.index('--max-model-len') + 1], '40960')
+        self.assertEqual(args[args.index('--gpu-memory-utilization') + 1], '0.90')
+        self.assertEqual(args[args.index('--cpu-offload-gb') + 1], '0')
+        self.assertNotIn('--max-num-batched-tokens', args)
+        self.assertNotIn('--kv-cache-memory-bytes', args)
+        self.assertEqual(args[args.index('--mamba-cache-mode') + 1], 'align')
+        self.assertEqual(json.loads(args[args.index('--compilation-config') + 1]),
+                         {'mode': 0, 'cudagraph_mode': 'FULL_DECODE_ONLY', 'cudagraph_capture_sizes': [1, 2]})
+        self.assertEqual(json.loads(args[args.index('--kv-transfer-config') + 1]),
+                         {'kv_connector': 'OffloadingConnector', 'kv_role': 'kv_both',
+                          'kv_connector_extra_config': {'cpu_bytes_to_use': 68719476736,
+                          'blocks_per_chunk': 1, 'offload_prompt_only': False}})
+        self.assertNotIn('--worker-cls', args)
+        self.assertNotIn('--middleware', args)
+        self.assertIn('--cudagraph-metrics', args)
+        self.assertEqual(json.loads(args[args.index('--limit-mm-per-prompt') + 1]), {'image': 1, 'video': 0})
+
+    def test_proof_flags_preserve_lora_registration_and_base_alias(self):
+        guard = self.root / 'guard.py'
+        guard.write_text('pass\n')
+        launcher = self.root / 'start-server'
+        launcher.write_text(Path(self.launcher).read_text().replace('/usr/local/lib/kv-runtime-config.py', str(guard)))
+        launcher.chmod(0o755)
+        self.launcher = str(launcher)
+        args_file = self.root / 'proof-args.json'
+        adapter = self.lora_adapter(self.env)
+        self.start(METRICS_ENABLED='false', FAKE_ARG_FILE=str(args_file), CPU_OFFLOAD_GB='0',
+                   KV_OFFLOAD_CPU_GIB='64', CUDA_DECODE_GRAPHS='true',
+                   KV_RUNTIME_OBSERVE='true', KV_RUNTIME_PROOF='true', LORA_ADAPTER_PATH=adapter)
+        self.ready(8000)
+        args = json.loads(args_file.read_text())
+        self.assertEqual(args[args.index('--worker-cls') + 1], 'kv_runtime.Worker')
+        self.assertEqual(args[args.index('--middleware') + 1], 'kv_runtime.ProofMiddleware')
+        self.assertEqual(args[args.index('--served-model-name') + 1], 'qwen-bf16-base')
+        self.assertIn('--enable-lora', args)
+        self.assertEqual(args[args.index('--max-lora-rank') + 1], '8')
+        self.assertEqual(json.loads(args[args.index('--limit-mm-per-prompt') + 1]), {'image': 1, 'video': 0})
+
+    def test_unverified_graph_shapes_fail_closed(self):
+        self.start(CPU_OFFLOAD_GB='0', MAX_NUM_SEQS='3', CUDA_DECODE_GRAPHS='true')
+        output = self.process.communicate(timeout=10)[0]
+        self.assertEqual(self.process.returncode, 1)
+        self.assertIn('verified two-sequence ceiling', output)
+        self.closed(8000)
+
+    def test_invalid_native_capacity_fails_closed(self):
+        self.start(KV_OFFLOAD_CPU_GIB='32')
+        output = self.process.communicate(timeout=10)[0]
+        self.assertEqual(self.process.returncode, 1)
+        self.assertIn('KV_OFFLOAD_CPU_GIB must be 0 or 64', output)
+        self.closed(8000)
 
     def test_chat_only_starts_its_gateway_without_metrics(self):
         self.start(METRICS_ENABLED='false', CHAT_ENABLED='true')

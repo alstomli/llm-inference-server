@@ -20,6 +20,8 @@ RUN (python3 -m pip check > /tmp/pip-check-before || test "$?" -eq 1) \
  && rm /tmp/vllm-constraints.txt /tmp/pip-check-*
 COPY scripts/start-jupyter.py /usr/local/lib/start-jupyter.py
 COPY scripts/start-server.sh /usr/local/bin/start-server
+COPY scripts/kv-runtime-config.py /usr/local/lib/kv-runtime-config.py
+COPY scripts/kv_runtime.py /usr/local/lib/python3.12/dist-packages/kv_runtime.py
 COPY scripts/metrics-relay.py /usr/local/lib/metrics-relay.py
 COPY scripts/chat-gateway.py /usr/local/lib/chat-gateway.py
 COPY --from=gateway-build /out/chat-gateway /usr/local/bin/chat-gateway
