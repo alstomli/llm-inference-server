@@ -67,8 +67,8 @@ CPU usage/read/write gauges measure active transfer pins and unfinished transfer
 
 [All-case aggregate JSON](COMBINED-CAPACITY-RESULTS-2026-11-13.json). Raw numerical evidence and dashboard screenshots remain in the local report package/gallery; private controls and screenshots are not published.
 
-Reuse the existing [protocol](COMBINED-CAPACITY-BENCHMARK.md), canonical plan and bundle builder. Refresh the enabled production snapshot and temporary run/lease, perform the existing preflight/watchdog checks, then run the unchanged plan and restore production before reporting. Keep screenshot capture and analysis separate from the load loop.
+Reuse the existing [protocol](COMBINED-CAPACITY-BENCHMARK.md), canonical plan and bundle builder. Refresh the enabled production snapshot and temporary run/lease, verify unchanged source hashes and check only changed startup/manifest parts while retaining the fresh snapshot, startup contract and watchdog checks, then run the unchanged plan and restore production before reporting. Keep screenshot capture and analysis separate from the load loop.
 
-Restoration ordering: check configuration/service health, run the required initial base smoke to initialize lazy CPU-transfer metric labels, then wait for publication and all five idle queue/transfer gauges before completing the remaining smoke/idle receipt. Do not move this restoration smoke before canonical cold warm-short.
+Restoration ordering: check configuration/service health, run one required base smoke to initialize lazy CPU-transfer metric labels, then wait for publication and all five idle queue/transfer gauges before completing the idle receipt. Do not move this restoration smoke before canonical cold warm-short.
 
 Production was restored to the enabled two-sequence profile with native CPU KV offload and decode graphs [1,2]. Independent health/configuration checks passed and the temporary helpers exited. No gateway quota change follows from this engine test.
