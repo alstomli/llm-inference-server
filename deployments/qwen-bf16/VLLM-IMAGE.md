@@ -1,9 +1,6 @@
 # Official BF16 image deployment
 
-The active BF16 hardware is now RTX PRO 6000 Pod `o6f2qoctk798tq`, with
-`CPU_OFFLOAD_GB=0`. See [the RTX PRO 6000 migration guide](RTX6000-MIGRATION.md)
-for current endpoints, configuration and verification. The RTX PRO 4500 SE
-measurements and 40 GiB offload settings below describe the historical deployment.
+This guide records the first official BF16 image and its historical verification. See the [dated runtime snapshot](CURRENT.md) for the later configured Pod, image and overrides. The RTX PRO 4500 measurements and 40 GiB weight-offload settings below do not define the current service.
 
 The optional [LoRA serving guide](LORA-SERVING.md) describes the prepared startup
 configuration for using a trained adapter through the existing BF16 chatbot
@@ -148,8 +145,7 @@ maximum-context requests fit; record the exact GPU workload tested. Do not
 silently reduce the requested context or concurrency if the trial cannot fit.
 
 The image's environment is authoritative for serving settings. The older
-`config.json`, `serve.py`, and `bootstrap.sh` describe the preceding script-based
-setup; the official image uses only the checkpoint staging data from the volume.
+[Template startup source](https://github.com/alstomli/llm-inference-server/tree/6685b0e/deployments/qwen-bf16) describes the preceding script-based setup; those retired launchers are no longer included. `config.json` remains a model-ID input to checkpoint preparation; serving settings come from the environment.
 `prepare_model.py` runs from the image, verifies the pinned checkpoint metadata,
 and reuses staged files. Locks, temporary downloads, and caches remain local
 because the global volume does not provide POSIX locking/atomic rename.
