@@ -6,7 +6,7 @@ explicit unsupported profiles fail before model startup or deployment. The retir
 quantized checkpoint has no startup/download path or deployment workflow target.
 
 See the [BF16 image guide](deployments/qwen-bf16/VLLM-IMAGE.md),
-[current hardware configuration](deployments/qwen-bf16/RTX6000-MIGRATION.md), and
+[dated runtime snapshot](deployments/qwen-bf16/CURRENT.md), and
 [LoRA serving configuration](deployments/qwen-bf16/LORA-SERVING.md). BF16 base and
 adapter modes retain image input, authenticated chat, monitoring, and opt-in web
 search. Existing dated verification JSON files describe historical deployments;
@@ -55,7 +55,10 @@ validates and reuses the checkpoint. No community quantized checkpoint is downlo
 Defaults are 40,960 context tokens and two sequences, with no batching collection
 window. BF16 uses bfloat16, eager execution/loading, and configurable CPU offloading
 (default 40 GiB; the current hardware configuration explicitly overrides it).
-Existing Pod overrides take precedence. Preserve current volume, token files,
+These are source defaults, not a description of the running Pod. The [runtime
+snapshot](deployments/qwen-bf16/CURRENT.md) records configured overrides, including
+weight offloading versus CPU KV-cache residency. Existing Pod overrides take
+precedence. Preserve current volume, token files,
 ports, adapter configuration, and hardware-specific settings when releasing.
 
 For automatic metrics collection, set `METRICS_ENABLED=true`,
@@ -76,7 +79,7 @@ Test a replacement Pod before retiring the existing Pod. A network volume is tie
 
 ## Chat gateway
 
-See [the chatbot project](https://github.com/alstomli/qwen-chat) for the frontend and later deployment instructions. `scripts/chat-gateway.py` exposes only authenticated readiness and streaming chat routes, counts the actual vLLM chat-template tokens before generation, trims old exchanges to fit the context, and admits up to two active requests plus six waiting requests per gateway process, with FIFO promotion among accounts eligible to run. It uses a separate chat token; the metrics token is not reused. Set `CHAT_ENABLED=true`, `CHAT_HOST=0.0.0.0`, `CHAT_PORT=8001`, and retain `/workspace/chat/chat-token` on the persistent volume when deploying. Keep vLLM private, retain the existing monitoring settings, and expose port 8001 only when ready to publish the authenticated gateway. Without `CHAT_ENABLED=true`, existing inference/monitoring behavior is preserved.
+See [the chatbot project](https://github.com/alstomli/qwen-chat) for the frontend and later deployment instructions. The Go binary built from `gateway/` exposes only authenticated readiness and streaming chat routes, counts the actual vLLM chat-template tokens before generation, trims old exchanges to fit the context, and admits up to two active requests plus six waiting requests per gateway process, with FIFO promotion among accounts eligible to run. It uses a separate chat token; the metrics token is not reused. Set `CHAT_ENABLED=true`, `CHAT_HOST=0.0.0.0`, `CHAT_PORT=8001`, and retain `/workspace/chat/chat-token` on the persistent volume when deploying. Keep vLLM private, retain the existing monitoring settings, and expose port 8001 only when ready to publish the authenticated gateway. Without `CHAT_ENABLED=true`, existing inference/monitoring behavior is preserved.
 
 Configure `RUNPOD_BF16_CHAT_URL` and `RUNPOD_BF16_CHAT_TOKEN` privately in the
 environment or the sibling chatbot's ignored `.env.local`. The deployment checker
@@ -155,7 +158,7 @@ the chat and startup tests remain under `scripts/` and run in the inference imag
 
 `settings.reuseCachedPrefixes` is a boolean that defaults to `true`. When false, the gateway generates a fresh cryptographic `cache_salt` for every generation request, preventing reuse of earlier requests' cached prefixes. Client-supplied salts are not forwarded. This does not disable cache writes or release reserved GPU memory. The launcher explicitly enables vLLM prefix caching. Health advertises support via `limits.reuseCachedPrefixes: true`, while retaining settings version 1 for existing clients. Deploy the updated inference image before enabling the frontend control; the frontend also supports older gateways with the toggle unavailable.
 
-The updated frontend can send a `settings` object with `inputCharacters`, `outputTokens`, `contextTokens`, `historyMessages`, `historyBytes`, `requestBytes`, `timeoutSeconds`, and `safetyTokens`. These preferences lower the deployment ceilings in `scripts/chat-gateway.py`; they cannot raise vLLM capacity. The gateway enforces character, byte, history, token, and timeout budgets and forwards only model generation options to vLLM. The newest input character count follows browser UTF-16 length; history/request sizes use UTF-8 bytes. Output plus safety reserve must leave input space. Generation timeout covers FIFO queue wait, model-capacity verification, tokenization, upstream prefill, and streaming, and cancellation releases gateway capacity.
+The updated frontend can send a `settings` object with `inputCharacters`, `outputTokens`, `contextTokens`, `historyMessages`, `historyBytes`, `requestBytes`, `timeoutSeconds`, and `safetyTokens`. These preferences lower the deployment ceilings in `gateway/config.go`; they cannot raise vLLM capacity. The gateway enforces character, byte, history, token, and timeout budgets and forwards only model generation options to vLLM. The newest input character count follows browser UTF-16 length; history/request sizes use UTF-8 bytes. Output plus safety reserve must leave input space. Generation timeout covers FIFO queue wait, model-capacity verification, tokenization, upstream prefill, and streaming, and cancellation releases gateway capacity.
 
 Authenticated `/health` includes `settingsVersion: 1` and `limits`. Its context ceiling is the smaller of the gateway configuration, its application ceiling, and the running model's `max_model_len` from private `/v1/models`. The model capacity is rechecked per request. If capacity cannot be verified, readiness/generation fails instead of guessing. Rebuild/restart the gateway and deploy the matching frontend together; older gateways do not support these controls. Live smoke tests on November 1, 2026 verified output truncation at 128 tokens, input rejection with a 5-character limit, old-exchange trimming with a 512-token context budget, and rejection above the deployed 40,960-token ceiling. The published image also passed 10 gateway and 8 startup checks.
 

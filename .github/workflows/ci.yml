@@ -20,7 +20,6 @@ jobs:
         run: |
           python -m compileall -q scripts deployments/qwen-bf16
           bash -n scripts/start-server.sh
-          bash -n deployments/qwen-bf16/bootstrap.sh
           python deployments/qwen-bf16/test_prepare_model.py
           python scripts/test_deploy_runpod.py
           python scripts/test_benchmark_chat.py

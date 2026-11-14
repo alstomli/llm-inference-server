@@ -14,7 +14,7 @@ MANIFEST = ROOT / 'model-manifest.json'
 
 
 def write_manifest(state):
-    # Only one writer, protected by a local flock in bootstrap.sh. Global volumes
+    # Only one writer, protected by a local flock in scripts/start-server.sh. Global volumes
     # do not provide atomic rename; an interrupted JSON write fails closed.
     MANIFEST.write_text(json.dumps(state, indent=2) + '\n')
 
