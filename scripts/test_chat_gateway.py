@@ -4,6 +4,8 @@ import base64
 import importlib.util
 from io import BytesIO
 import json
+import os
+from unittest.mock import patch
 import re
 from pathlib import Path
 import unittest
@@ -1002,6 +1004,35 @@ class AdmissionTests(unittest.IsolatedAsyncioTestCase):
                         {'user_queue_limit': 7}, {'user_rate_limit': 21}, {'user_rate_limit': 0}]:
             with self.assertRaises(ValueError):
                 gateway.AdmissionQueue(**options)
+
+
+class CapacityEnvironmentTests(unittest.IsolatedAsyncioTestCase):
+    def test_source_fallback_and_explicit_bounded_capacity(self):
+        cases = [({}, (2,6,20)), ({'MAX_NUM_SEQS':'1'}, (1,6,20)),
+                 ({'MAX_NUM_SEQS':'8'}, (2,6,20)),
+                 ({'MAX_NUM_SEQS':'8','CHAT_MAX_CONCURRENT':'8','CHAT_MAX_WAITING':'24','CHAT_RATE_LIMIT_PER_MINUTE':'80'}, (8,24,80))]
+        for values, expected in cases:
+            with patch.dict(os.environ, values, clear=True):
+                self.assertEqual(gateway.capacity_from_env(), expected)
+                q=gateway.AdmissionQueue(*expected)
+                self.assertEqual((q.user_concurrency,q.user_queue_limit,q.user_rate_limit),(1,1,6))
+        for key in ['MAX_NUM_SEQS','CHAT_MAX_CONCURRENT','CHAT_MAX_WAITING','CHAT_RATE_LIMIT_PER_MINUTE',
+                    'CHAT_USER_MAX_CONCURRENT','CHAT_USER_MAX_WAITING','CHAT_USER_RATE_LIMIT_PER_MINUTE']:
+            for value in ['', '-1', '1.5', '+2', ' 2', '1_0', '81']:
+                with self.subTest(key=key,value=value),patch.dict(os.environ,{key:value},clear=True),self.assertRaises(ValueError):
+                    gateway.create_app(TOKEN)
+        for values in [{'MAX_NUM_SEQS':'0'},{'MAX_NUM_SEQS':'9'},{'CHAT_MAX_CONCURRENT':'0'},
+                       {'CHAT_MAX_CONCURRENT':'8'}, {'CHAT_MAX_WAITING':'25'}, {'CHAT_RATE_LIMIT_PER_MINUTE':'0'}]:
+            with patch.dict(os.environ,values,clear=True),self.assertRaises(ValueError): gateway.create_app(TOKEN)
+
+    async def test_eighty_global_and_six_per_account_limits(self):
+        q=gateway.AdmissionQueue(8,24,80)
+        for _ in range(6):
+            ticket,why,_=q.reserve('same'); self.assertIsNone(why); q.release(ticket)
+        self.assertEqual(q.reserve('same')[1], 'user_rate_limit')
+        for i in range(6,80):
+            ticket,why,_=q.reserve(str(i)); self.assertIsNone(why); q.release(ticket)
+        self.assertEqual(q.reserve('overflow')[1], 'rate_limit')
 
 
 if __name__ == '__main__':

@@ -112,3 +112,9 @@ services if any child exits.
 On termination, the Go gateway immediately cancels active requests and waits up
 to ten seconds for handler cleanup before forcing connections closed. It does
 not finish generating outstanding replies during shutdown.
+
+## Bounded capacity overrides
+
+`MAX_NUM_SEQS` must be an integer from 1 through 8. Without explicit chat overrides the gateway still uses `min(2, MAX_NUM_SEQS)` active requests, six waiting, and twenty accepted requests per rolling minute. `CHAT_MAX_CONCURRENT` accepts 1–8 and cannot exceed the engine setting; `CHAT_MAX_WAITING` accepts 0–24, and `CHAT_RATE_LIMIT_PER_MINUTE` accepts 1–80. Empty, signed, whitespace-padded, noninteger and out-of-range settings fail startup. The supported Python implementation uses the same parsing and bounds.
+
+Per-account defaults remain 1 active, 1 waiting and 6 accepted/minute, shared by base/adapter requests. Existing per-account overrides remain bounded by the configured globals. The batch-eight production profile explicitly retains those account values. Health exposes effective admission limits; [rollout guidance](BATCH-EIGHT-ROLLOUT.md) distinguishes source defaults from approved deployment overrides.

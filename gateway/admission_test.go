@@ -102,3 +102,93 @@ func TestAdmissionPromotionCancellationRace(t *testing.T) {
 		}
 	}
 }
+
+func TestEightActiveTwentyFourWaitingFairnessAndRecovery(t *testing.T) {
+	a, err := newAdmission(8, 24, 80, 1, 1, 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := make([]*ticket, 8)
+	for i := range active {
+		active[i], _, _ = a.reserve(fmt.Sprintf("active-%d", i))
+	}
+	blocked, _, _ := a.reserve("active-0")
+	waiters := make([]*ticket, 23)
+	for i := range waiters {
+		waiters[i], _, _ = a.reserve(fmt.Sprintf("waiter-%d", i))
+	}
+	if got := a.snapshot(); got["activeRequests"] != 8 || got["waitingRequests"] != 24 {
+		t.Fatal(got)
+	}
+	if _, why, _ := a.reserve("overflow"); why != "queue_full" {
+		t.Fatal(why)
+	}
+	if _, why, _ := a.reserve("active-0"); why != "user_capacity" {
+		t.Fatal(why)
+	}
+	a.release(active[1])
+	select {
+	case <-waiters[0].ready:
+	default:
+		t.Fatal("oldest eligible peer not promoted")
+	}
+	select {
+	case <-blocked.ready:
+		t.Fatal("busy-account waiter bypassed per-account cap")
+	default:
+	}
+	a.release(active[0])
+	select {
+	case <-blocked.ready:
+	default:
+		t.Fatal("oldest now-eligible account not promoted")
+	}
+	// Queued cancellation and active cleanup release every reservation exactly once.
+	for _, v := range waiters {
+		a.release(v)
+		a.release(v)
+	}
+	a.release(blocked)
+	for _, v := range active {
+		a.release(v)
+	}
+	if got := a.snapshot(); got["activeRequests"] != 0 || got["waitingRequests"] != 0 {
+		t.Fatal(got)
+	}
+	next, why, _ := a.reserve("recovered")
+	if next == nil {
+		t.Fatal(why)
+	}
+	a.release(next)
+}
+func TestEightyGlobalRequestsKeepSixPerAccount(t *testing.T) {
+	a, _ := newAdmission(8, 24, 80, 1, 1, 6)
+	now := time.Now()
+	a.clock = func() time.Time { return now }
+	for i := 0; i < 6; i++ {
+		v, why, _ := a.reserve("same")
+		if v == nil {
+			t.Fatal(why)
+		}
+		a.release(v)
+	}
+	if _, why, _ := a.reserve("same"); why != "user_rate_limit" {
+		t.Fatal(why)
+	}
+	for i := 6; i < 80; i++ {
+		v, why, _ := a.reserve(fmt.Sprintf("user-%d", i))
+		if v == nil {
+			t.Fatal(why)
+		}
+		a.release(v)
+	}
+	if _, why, retry := a.reserve("overflow"); why != "rate_limit" || retry != 60 {
+		t.Fatalf("%s %d", why, retry)
+	}
+	now = now.Add(time.Minute)
+	v, why, _ := a.reserve("same")
+	if v == nil {
+		t.Fatal(why)
+	}
+	a.release(v)
+}

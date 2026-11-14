@@ -64,10 +64,15 @@ esac
 case "${CUDA_DECODE_GRAPHS:-false}" in
   false|0) args+=(--enforce-eager) ;;
   true|1)
-    [[ "${CPU_OFFLOAD_GB:-40}" == 0 && "$MAX_NUM_SEQS" == 2 ]] || {
-      echo 'Decode graphs require zero weight offload and the verified two-sequence ceiling.' >&2; exit 1;
+    [[ "${CPU_OFFLOAD_GB:-40}" == 0 ]] || {
+      echo 'Decode graphs require zero weight offload.' >&2; exit 1;
     }
-    args+=(--compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[1,2]}' --cudagraph-metrics)
+    case "$MAX_NUM_SEQS" in
+      2) capture_sizes='[1,2]' ;;
+      8) capture_sizes='[1,2,4,8]' ;;
+      *) echo 'Decode graphs require the supported two- or eight-sequence profile.' >&2; exit 1 ;;
+    esac
+    args+=(--compilation-config "{\"mode\":0,\"cudagraph_mode\":\"FULL_DECODE_ONLY\",\"cudagraph_capture_sizes\":$capture_sizes}" --cudagraph-metrics)
     ;;
   *) echo 'CUDA_DECODE_GRAPHS must be true or false.' >&2; exit 1 ;;
 esac

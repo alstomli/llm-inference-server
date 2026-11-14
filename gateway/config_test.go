@@ -56,3 +56,72 @@ func TestBF16EnvironmentKeepsExplicitBaseAndAdapterAliases(t *testing.T) {
 	}
 	g.Close()
 }
+
+func TestBoundedCapacityEnvironment(t *testing.T) {
+	token := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(token, []byte(strings.Repeat("t", 48)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"MODEL_PROFILE", "MAX_NUM_SEQS", "CHAT_MAX_CONCURRENT", "CHAT_MAX_WAITING", "CHAT_RATE_LIMIT_PER_MINUTE", "CHAT_USER_MAX_CONCURRENT", "CHAT_USER_MAX_WAITING", "CHAT_USER_RATE_LIMIT_PER_MINUTE"} {
+		t.Setenv(key, "")
+		os.Unsetenv(key)
+	}
+	t.Setenv("CHAT_TOKEN_FILE", token)
+	cases := []struct {
+		name                  string
+		values                map[string]string
+		active, waiting, rate int
+		bad                   bool
+	}{
+		{"fallback", nil, 2, 6, 20, false},
+		{"one engine", map[string]string{"MAX_NUM_SEQS": "1"}, 1, 6, 20, false},
+		{"larger engine alone keeps fallback", map[string]string{"MAX_NUM_SEQS": "8"}, 2, 6, 20, false},
+		{"production", map[string]string{"MAX_NUM_SEQS": "8", "CHAT_MAX_CONCURRENT": "8", "CHAT_MAX_WAITING": "24", "CHAT_RATE_LIMIT_PER_MINUTE": "80"}, 8, 24, 80, false},
+		{"no wait", map[string]string{"CHAT_MAX_WAITING": "0", "CHAT_USER_MAX_WAITING": "0"}, 2, 0, 20, false},
+	}
+	for _, key := range []string{"MAX_NUM_SEQS", "CHAT_MAX_CONCURRENT", "CHAT_MAX_WAITING", "CHAT_RATE_LIMIT_PER_MINUTE", "CHAT_USER_MAX_CONCURRENT", "CHAT_USER_MAX_WAITING", "CHAT_USER_RATE_LIMIT_PER_MINUTE"} {
+		for _, value := range []string{"", "-1", "1.5", "+2", " 2", "1_0", "81"} {
+			cases = append(cases, struct {
+				name                  string
+				values                map[string]string
+				active, waiting, rate int
+				bad                   bool
+			}{key + "=" + value, map[string]string{key: value}, 0, 0, 0, true})
+		}
+	}
+	for _, values := range []map[string]string{
+		{"MAX_NUM_SEQS": "0"}, {"MAX_NUM_SEQS": "9"}, {"CHAT_MAX_CONCURRENT": "0"},
+		{"MAX_NUM_SEQS": "2", "CHAT_MAX_CONCURRENT": "8"}, {"MAX_NUM_SEQS": "8", "CHAT_MAX_CONCURRENT": "9"},
+		{"CHAT_MAX_WAITING": "25"}, {"CHAT_RATE_LIMIT_PER_MINUTE": "0"},
+	} {
+		cases = append(cases, struct {
+			name                  string
+			values                map[string]string
+			active, waiting, rate int
+			bad                   bool
+		}{"bounds", values, 0, 0, 0, true})
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for key, value := range tc.values {
+				t.Setenv(key, value)
+			}
+			c, err := ConfigFromEnv()
+			if tc.bad {
+				if err == nil {
+					t.Fatal("invalid capacity accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Concurrency != tc.active || c.QueueLimit != tc.waiting || c.RateLimit != tc.rate {
+				t.Fatalf("unexpected limits: %+v", c)
+			}
+			if c.UserConcurrency != 1 || c.UserRateLimit != 6 || (tc.waiting > 0 && c.UserQueueLimit != 1) {
+				t.Fatal("account defaults changed")
+			}
+		})
+	}
+}

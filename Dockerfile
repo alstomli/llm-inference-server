@@ -6,18 +6,9 @@ COPY gateway/ ./
 RUN go vet ./... && go test -race ./... \
  && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/chat-gateway ./cmd/chat-gateway
 
-FROM vllm/vllm-openai:v0.32.0
-# Preserve the vendor stack, including its existing dependency overrides.
-# Jupyter must not introduce any additional pip-check conflicts.
-RUN (python3 -m pip check > /tmp/pip-check-before || test "$?" -eq 1) \
- && python3 -m pip freeze > /tmp/vllm-constraints.txt \
- && python3 -m pip install --no-cache-dir -c /tmp/vllm-constraints.txt \
-      'jupyterlab==4.6.4' 'jupyter-server==2.21.1' 'notebook==7.6.3' \
- && (python3 -m pip check > /tmp/pip-check-after || test "$?" -eq 1) \
- && sort /tmp/pip-check-before > /tmp/pip-check-before-sorted \
- && sort /tmp/pip-check-after > /tmp/pip-check-after-sorted \
- && diff -u /tmp/pip-check-before-sorted /tmp/pip-check-after-sorted \
- && rm /tmp/vllm-constraints.txt /tmp/pip-check-*
+# Preserve the exact deployed vendor/Jupyter dependency stack (originally vLLM 0.32.0).
+# Vendor refreshes are a separate reviewed change; do not resolve mutable base tags or pip here.
+FROM zihan000/qwen-inference@sha256:59ff84b6a9c8ceca9aa5e568d726b5a5f3f72959229cacc622cf83257757f50d
 COPY scripts/start-jupyter.py /usr/local/lib/start-jupyter.py
 COPY scripts/start-server.sh /usr/local/bin/start-server
 COPY scripts/kv-runtime-config.py /usr/local/lib/kv-runtime-config.py

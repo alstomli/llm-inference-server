@@ -168,12 +168,12 @@ def reference_server():
     app = module.create_app(TOKEN, upstream='http://127.0.0.1:' + os.environ['VLLM_PORT'],
         model='qwen-bf16', base_model='qwen-bf16-base' if os.environ.get('LORA_ADAPTER_PATH') else None,
         model_profile=os.environ['MODEL_PROFILE'], image_input_enabled=os.environ['CHAT_IMAGE_INPUT_ENABLED'] == 'true',
-        concurrency=min(2, int(os.environ['MAX_NUM_SEQS'])))
+        )
     uvicorn.run(app, host='127.0.0.1', port=int(os.environ['CHAT_PORT']), access_log=False, log_level='error')
 
 
 class RunningGateway:
-    def __init__(self, kind, *, adapter=False, image=False, diagnostics=True, identity=True, user_rate=6):
+    def __init__(self, kind, *, adapter=False, image=False, diagnostics=True, identity=True, user_rate=6, capacity=2, queue=6, rate=20):
         self.kind = kind
         self.model = FakeModel(adapter)
         self.thread = threading.Thread(target=self.model.serve_forever, daemon=True)
@@ -187,7 +187,8 @@ class RunningGateway:
         # select real services or reveal credentials in this local harness.
         env.update(CHAT_TOKEN_FILE=str(token_path), CHAT_HOST='127.0.0.1', CHAT_PORT=str(self.port),
             VLLM_PORT=str(self.model.server_port), VLLM_API_KEY=UPSTREAM_KEY, SERVED_MODEL_NAME='qwen-bf16',
-            MAX_MODEL_LEN='40960', MAX_NUM_SEQS='2', MODEL_PROFILE='bf16',
+            MAX_MODEL_LEN='40960', MAX_NUM_SEQS=str(capacity), MODEL_PROFILE='bf16',
+            CHAT_MAX_CONCURRENT=str(capacity), CHAT_MAX_WAITING=str(queue), CHAT_RATE_LIMIT_PER_MINUTE=str(rate),
             CHAT_IMAGE_INPUT_ENABLED=str(image).lower(), CHAT_DIAGNOSTICS_ENABLED=str(diagnostics).lower(),
             CHAT_REQUIRE_USER_ID=str(identity).lower(), CHAT_USER_MAX_CONCURRENT='1',
             CHAT_USER_MAX_WAITING='1', CHAT_USER_RATE_LIMIT_PER_MINUTE=str(user_rate),
@@ -552,7 +553,7 @@ class GatewayContractTests(unittest.TestCase):
                     self.assert_idle(gateway)
 
     def test_queued_disconnect_and_account_capacity_do_not_block_peer(self):
-        with self.pair() as pair:
+        with self.pair(capacity=8, queue=24, rate=80) as pair:
             for gateway in pair:
                 user = str(uuid.uuid4())
                 active, active_response = gateway.stream(user=user)
@@ -591,46 +592,48 @@ class GatewayContractTests(unittest.TestCase):
                 self.assert_idle(gateway)
 
     def test_global_queue_capacity_and_fifo_promotion(self):
-        with self.pair() as pair:
-            for gateway in pair:
-                active = [gateway.stream() for _ in range(2)]
-                queued = []
-                try:
-                    for index in range(6):
-                        connection = http.client.HTTPConnection('127.0.0.1', gateway.port, timeout=5)
-                        connection.request('POST', '/v1/chat/completions', json.dumps(request_body(f'queued-{index}')), {
-                            'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json',
-                            'X-Chat-User-Id': str(uuid.uuid4())})
-                        queued.append(connection)
-                        until = time.monotonic() + 3
-                        while time.monotonic() < until:
-                            health = json.loads(gateway.request('/health', method='GET')[2])
-                            if health['admission']['waitingRequests'] == index + 1:
-                                break
-                            time.sleep(.01)
-                        self.assertEqual(index + 1, health['admission']['waitingRequests'])
-                    rejected = gateway.request()
-                    self.assertEqual((429, 'queue_full'), (rejected[0], rejected[1].get('x-chat-rejection')))
-                    active[0][1].close()
-                    active[0][0].close()
-                    for connection in queued:
-                        response = connection.getresponse()
-                        self.assertEqual(200, response.status)
-                        response.read()
-                    promoted = [body['messages'][-1]['content']
-                                for body in gateway.model.bodies('/v1/chat/completions')
-                                if body['messages'][-1]['content'].startswith('queued-')]
-                    self.assertEqual([f'queued-{index}' for index in range(6)], promoted)
-                finally:
-                    for connection in queued:
-                        connection.close()
-                    for connection, response in active:
-                        response.close()
-                        connection.close()
-                self.assert_idle(gateway)
+        for capacity, waiting, rate in ((2, 6, 20), (8, 24, 80)):
+            with self.subTest(capacity=capacity), self.pair(capacity=capacity, queue=waiting, rate=rate) as pair:
+                for gateway in pair:
+                    active = [gateway.stream() for _ in range(capacity)]
+                    queued = []
+                    try:
+                        for index in range(waiting):
+                            connection = http.client.HTTPConnection('127.0.0.1', gateway.port, timeout=5)
+                            connection.request('POST', '/v1/chat/completions', json.dumps(request_body(f'queued-{index}')), {
+                                'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json',
+                                'X-Chat-User-Id': str(uuid.uuid4())})
+                            queued.append(connection)
+                            until = time.monotonic() + 3
+                            while time.monotonic() < until:
+                                health = json.loads(gateway.request('/health', method='GET')[2])
+                                if health['admission']['waitingRequests'] == index + 1:
+                                    break
+                                time.sleep(.01)
+                            self.assertEqual(index + 1, health['admission']['waitingRequests'])
+                        rejected = gateway.request()
+                        self.assertEqual((429, 'queue_full'), (rejected[0], rejected[1].get('x-chat-rejection')))
+                        active[0][1].close()
+                        active[0][0].close()
+                        for connection in queued:
+                            response = connection.getresponse()
+                            self.assertEqual(200, response.status)
+                            response.read()
+                        promoted = [body['messages'][-1]['content']
+                                    for body in gateway.model.bodies('/v1/chat/completions')
+                                    if body['messages'][-1]['content'].startswith('queued-')]
+                        self.assertEqual([f'queued-{index}' for index in range(waiting)], promoted)
+                    finally:
+                        for connection in queued:
+                            connection.close()
+                        for connection, response in active:
+                            response.close()
+                            connection.close()
+                    self.assert_idle(gateway)
+
 
     def test_queue_timeout_does_not_reach_upstream(self):
-        with self.pair() as pair:
+        with self.pair(capacity=8, queue=24, rate=80) as pair:
             for gateway in pair:
                 user = str(uuid.uuid4())
                 active, response = gateway.stream(user=user)
