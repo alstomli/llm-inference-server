@@ -206,7 +206,7 @@ def completed_scenario_matches(summary, expected, cache_namespace):
 
 
 class Runner:
-    def __init__(self, config, prompts, writer, *, api_key=None):
+    def __init__(self, config, prompts, writer, *, api_key=None, arrival_schedule=None):
         config.validate()
         self.config, self.prompts, self.writer = config, prompts, writer
         self.headers = {"Authorization": "Bearer " + api_key} if api_key else {}
@@ -217,6 +217,19 @@ class Runner:
         self.next_id = 0
         self.rng = random.Random(config.seed)
         self.cache_namespace = uuid.uuid4().hex if config.cache_namespace == "auto" else config.cache_namespace
+        self.arrival_schedule = arrival_schedule
+        if arrival_schedule is not None:
+            if not config.arrival_rate or not arrival_schedule:
+                raise ValueError('A frozen arrival replay requires an open-loop case')
+            previous = -1.0
+            for index, row in enumerate(arrival_schedule):
+                offset = row['scheduled_s']
+                if (row['id'] != index or row['workload'] not in WORKLOADS or
+                        not math.isfinite(offset) or offset < 0 or not previous <= offset < config.duration):
+                    raise ValueError('Invalid frozen arrival schedule')
+                previous = offset
+            if config.max_requests and len(arrival_schedule) > config.max_requests:
+                raise ValueError('Frozen arrivals exceed the request bound')
 
     def workload(self):
         return self.rng.choices(list(WORKLOADS), weights=[50, 35, 15])[0] if self.config.workload == "mixed" else self.config.workload
@@ -230,10 +243,12 @@ class Runner:
                 self.stop_reason = "failure_rate_exceeded_5_percent"
                 self.stop.set()
 
-    def new_row(self, scheduled):
-        row = {"id": self.next_id, "workload": self.workload(), "scheduled_s": scheduled - self.started,
+    def new_row(self, scheduled, workload=None):
+        row = {"id": self.next_id, "workload": workload or self.workload(), "scheduled_s": scheduled - self.started,
                "enqueued_s": time.monotonic() - self.started, "submitted_s": None,
-               "outcome": "pending", "forced_length": self.config.force_length}
+               "outcome": "pending", "forced_length": self.config.force_length,
+               "usage_observed": False, "observed_completion_tokens": 0,
+               "observed_prompt_tokens": 0, "output_token_accounting": "not_submitted_zero_output"}
         row["scheduler_lag_s"] = row["enqueued_s"] - row["scheduled_s"]
         self.next_id += 1
         return row
@@ -251,6 +266,8 @@ class Runner:
                 row["client_wait_s"] = row["submitted_s"] - row["scheduled_s"]
                 row["dispatch_lag_s"] = row["client_wait_s"]
                 row["client_queue_wait_s"] = row["submitted_s"] - row["enqueued_s"]
+                row.update(observed_completion_tokens=None, observed_prompt_tokens=None,
+                           output_token_accounting='unknown_censored_until_usage')
                 payload = {"model": self.config.model, "prompt": ids, "max_tokens": output,
                            "temperature": 0, "seed": self.config.seed + row["id"], "stream": True,
                            "stream_options": {"include_usage": True}, "ignore_eos": self.config.force_length,
@@ -314,6 +331,11 @@ class Runner:
         except (ValueError, KeyError, TypeError):
             row["outcome"] = "protocol_error"
         finally:
+            if isinstance(usage, dict):
+                row['usage_observed'] = True
+                row['observed_completion_tokens'] = usage.get('completion_tokens') if type(usage.get('completion_tokens')) is int else None
+                row['observed_prompt_tokens'] = usage.get('prompt_tokens') if type(usage.get('prompt_tokens')) is int else None
+                row['output_token_accounting'] = 'validated_final_usage' if row['outcome'] == 'success' else 'observed_usage_incomplete_or_censored'
             ended = time.monotonic()
             row["ended_s"] = ended - self.started
             row["e2e_s"] = ended - scheduled
@@ -351,6 +373,10 @@ class Runner:
                             if len(parts) != 2:
                                 continue
                             name = parts[0].split("{", 1)[0].removeprefix("vllm:")
+                            if parts[0].startswith('vllm:'):
+                                number = float(parts[1])
+                                if math.isfinite(number):
+                                    sample.setdefault('prometheus', {})[parts[0]] = number
                             if name in METRICS:
                                 sample[name] = sample.get(name, 0) + float(parts[1])
                 if Path("/proc/stat").exists():
@@ -364,12 +390,27 @@ class Runner:
                     expected = time.monotonic() + self.config.metrics_interval
                     await asyncio.sleep(self.config.metrics_interval)
                     continue
-                proc = await asyncio.create_subprocess_exec("nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
+                gpu_fields = ['utilization.gpu', 'memory.used', 'memory.total', 'utilization.memory',
+                              'power.draw', 'power.limit', 'clocks.current.sm', 'clocks.current.memory']
+                proc = await asyncio.create_subprocess_exec("nvidia-smi", "--query-gpu=" + ','.join(gpu_fields),
                                                             "--format=csv,noheader,nounits", stdout=asyncio.subprocess.PIPE,
                                                             stderr=asyncio.subprocess.DEVNULL)
                 raw, _ = await asyncio.wait_for(proc.communicate(), 3)
                 values = raw.decode().strip().split(",")
-                sample.update(gpu_util_percent=float(values[0]), gpu_memory_mib=float(values[1]), gpu_total_mib=float(values[2]))
+                gpu_names = ['gpu_util_percent', 'gpu_memory_mib', 'gpu_total_mib',
+                             'gpu_memory_controller_busy_percent', 'gpu_power_watts', 'gpu_power_limit_watts',
+                             'gpu_sm_clock_mhz', 'gpu_memory_clock_mhz']
+                for index, name in enumerate(gpu_names):
+                    try:
+                        sample[name] = float(values[index])
+                    except (ValueError, IndexError):
+                        sample[name] = None
+                sample['gpu_activity_definition'] = 'nvidia-smi busy percentages; not SM-active or DRAM-bandwidth profiling counters'
+                sample['sm_active_profiling_sampled'] = False
+                sample['dram_active_profiling_sampled'] = False
+                sample['profiling_unavailable_reason'] = 'Not supplied by this native nvidia-smi query'
+                if proc.returncode != 0:
+                    sample['gpu_query_unavailable'] = True
             except (aiohttp.ClientError, OSError, ValueError, TimeoutError):
                 sample["sample_error"] = True
             finally:
@@ -406,6 +447,25 @@ class Runner:
                 self.queue.task_done()
 
     async def arrivals(self):
+        if self.arrival_schedule is not None:
+            for expected in self.arrival_schedule:
+                if self.stop.is_set():
+                    break
+                scheduled = self.started + expected['scheduled_s']
+                await asyncio.sleep(max(0, scheduled - time.monotonic()))
+                if self.stop.is_set():
+                    break
+                row = self.new_row(scheduled, workload=expected['workload'])
+                row['scheduled_s'] = expected['scheduled_s']
+                row['scheduler_lag_s'] = row['enqueued_s'] - row['scheduled_s']
+                try:
+                    self.queue.put_nowait(row)
+                    self.peak_backlog = max(self.peak_backlog, self.queue.qsize())
+                except asyncio.QueueFull:
+                    row.update(outcome='client_drop', ended_s=time.monotonic() - self.started,
+                               dispatch_lag_s=time.monotonic() - scheduled)
+                    self.record(row)
+            return
         scheduled = self.started
         while scheduled < self.arrivals_end and not self.stop.is_set():
             if self.config.max_requests and self.next_id >= self.config.max_requests:
@@ -476,6 +536,9 @@ class Runner:
             result = aggregate(self.config, self.records, time.monotonic() - self.started,
                                self.peak_outstanding, self.peak_backlog, self.stop_reason)
             result["scheduled_requests"] = self.next_id
+            result['frozen_arrival_replay'] = self.arrival_schedule is not None
+            result['planned_arrivals'] = len(self.arrival_schedule) if self.arrival_schedule is not None else None
+            result['arrival_replay_complete'] = (self.arrival_schedule is None or self.next_id == len(self.arrival_schedule))
             result["cache_isolation"] = "unique session/scenario/request prefix-cache salts plus unique early prompt prefixes"
             result["cache_namespace"] = self.cache_namespace
             result["all_outcomes_accounted"] = self.next_id == len(self.records)

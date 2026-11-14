@@ -153,6 +153,21 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result["success_rate"], 0)
                 self.assertEqual(result["outcome_counts"], {outcome:1})
 
+    async def test_censored_output_accounting_never_uses_chunk_count_as_tokens(self):
+        self.behavior = 'missing_usage'
+        result, runner = await self.run_case(max_requests=1)
+        row = runner.records[0]
+        self.assertFalse(row['usage_observed'])
+        self.assertIsNone(row['observed_completion_tokens'])
+        self.assertIn('unknown_censored', row['output_token_accounting'])
+        self.assertEqual(row['chunk_count'], 2)
+        self.behavior = 'truncated'
+        result, runner = await self.run_case(max_requests=1)
+        row = runner.records[0]
+        self.assertTrue(row['usage_observed'])
+        self.assertEqual(row['observed_completion_tokens'], 4)
+        self.assertEqual(row['output_token_accounting'], 'observed_usage_incomplete_or_censored')
+
     async def test_fragmented_network_sse_reports_actual_tokens(self):
         self.behavior = "fragmented"
         result, _ = await self.run_case(max_requests=1)
