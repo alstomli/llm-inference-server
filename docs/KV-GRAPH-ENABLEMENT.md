@@ -25,13 +25,14 @@ context length, LoRA/vision allocations, or gateway admission limits.
 
 ## Deployment decision
 
-`Dockerfile.kv-runtime` derives from the exact running inference digest,
-preserving its vendor libraries, model preparation, gateway and dependencies.
-It copies only the launcher and two small runtime helpers. The release workflow
-allows this exact feature branch to publish an unused version tag through the
-existing checks; main retains the ordinary full image build. Deployment pins
-the published digest. This avoids rebuilding a mutable vendor base to change
-startup flags.
+The historical enablement image used `Dockerfile.kv-runtime`, deriving from the
+then-running inference digest and copying only the launcher and two runtime
+helpers. That Dockerfile remains for reproducing the dated image provenance;
+normal CI and releases use `Dockerfile`, which includes the same runtime helpers.
+The temporary feature-branch release exception used for enablement has been
+removed: publication is restricted to `main` and the ordinary full image build.
+Deployment continues to pin a reviewed published digest. Merging this source
+does not publish an image, activate either opt-in, or change the running Pod.
 
 ## Bounded activation proof
 

@@ -27,7 +27,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          [[ "$GITHUB_REF" == refs/heads/main || "$GITHUB_REF" == refs/heads/feat/qwen-kv-graph-enable ]]
+          [[ "$GITHUB_REF" == refs/heads/main ]]
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           # Fail closed if the registry cannot confirm this tag is unused.
           status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://hub.docker.com/v2/repositories/zihan000/qwen-inference/tags/$VERSION")
@@ -35,11 +35,7 @@ jobs:
       - name: Build and test image
         run: |
           set -euo pipefail
-          dockerfile=Dockerfile
-          if [[ "$GITHUB_REF" == refs/heads/feat/qwen-kv-graph-enable ]]; then
-            dockerfile=Dockerfile.kv-runtime
-          fi
-          docker build --platform linux/amd64 -f "$dockerfile" -t inference-release .
+          docker build --platform linux/amd64 -t inference-release .
           for test in test_metrics_relay.py test_chat_gateway.py test_go_gateway_contract.py test_start_server.py test_start_jupyter.py test_lora_adapter.py test_kv_runtime.py; do
             docker run --rm --entrypoint python3 --tmpfs /workspace -v "$PWD/scripts:/tests:ro" inference-release "/tests/$test"
           done
