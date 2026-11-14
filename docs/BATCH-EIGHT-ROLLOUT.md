@@ -1,6 +1,6 @@
 # Batch-eight serving profile and rollout
 
-This is the approved target configuration and release procedure, not a claim that source integration has already changed the running service. The [dated runtime snapshot](../deployments/qwen-bf16/CURRENT.md) retains the preceding two-sequence deployment record.
+The approved profile below was accepted and retained on November 14, 2026 in release **0.18.0**. See the [current runtime and evidence limits](../deployments/qwen-bf16/CURRENT.md) and [sanitized bounded acceptance receipt](BATCH-EIGHT-ACCEPTANCE-2026-11-14.json). The procedure remains guidance for future controlled releases; source integration alone does not change the running service. The prior two-sequence state remains linked as dated history from the current record.
 
 | Setting | Source fallback | Explicit production target |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ Keep `MAX_MODEL_LEN=40960`, `GPU_MEMORY_UTILIZATION=0.90`, `CPU_OFFLOAD_GB=0`, `
 
 The normal Dockerfile retains the digest-pinned Go builder and rebuilds the gateway from reviewed source. Its runtime base is `zihan000/qwen-inference@sha256:59ff84b6a9c8ceca9aa5e568d726b5a5f3f72959229cacc622cf83257757f50d`, the previously deployed stack originally based on vLLM 0.32.0. It overlays the Go binary and all maintained launcher, model-preparation, adapter-validation, Jupyter, metrics, Python fallback and KV helper files. There is no runtime pip install or mutable vendor-tag resolution. A future vendor/dependency refresh requires a separate reviewed base update. CI and main-only releases use this same Dockerfile; the historical derivative Dockerfile is not selected by a branch exception.
 
-## Controlled rollout order
+## Controlled rollout order for a future change
 
 1. Pass exact-head image CI and frontend deadline tests; merge reviewed source. Publish a new unused immutable version through the main-only release workflow. Verify image provenance and inherited vendor/Jupyter versions against the pinned base before rollout.
 2. Deploy the frontend's 240-second Vercel application deadline first. It starts at route entry, covers auth/validation/readiness/queue/generation, respects shorter requests and web deadlines, and propagates aborts. Its platform route limit remains 300 seconds for headroom. Local custom timeouts remain available.

@@ -1,0 +1,90 @@
+{
+  "kind": "bounded functional acceptance; not a sustained-capacity benchmark",
+  "retained_at_utc": "2026-11-14T20:18:19Z",
+  "release": "0.18.0",
+  "image": "zihan000/qwen-inference@sha256:0851736fd6db7a2dd6f7440fea5cf3f76ed060f74dbc47e44944f440d88e5549",
+  "source_sha": "3ca4caf0ba9b797a5e55ebb2fc697dfa8425d087",
+  "release_run": "https://github.com/alstomli/llm-inference-server/actions/runs/43633361505",
+  "configuration": {
+    "engine_sequences": 8,
+    "gateway_active": 8,
+    "gateway_waiting": 24,
+    "global_accepted_per_minute": 80,
+    "per_account_active_waiting_per_minute": [
+      1,
+      1,
+      6
+    ],
+    "context_tokens": 40960,
+    "max_num_batched_tokens": 8192,
+    "gpu_memory_utilization": 0.9,
+    "cpu_weight_offload_gib": 0,
+    "cpu_kv_budget_gib": 64,
+    "native_cpu_kv_mapped_bytes": 68695359488,
+    "decode_graph_mode": "FULL_DECODE_ONLY",
+    "decode_graph_captures": [
+      1,
+      2,
+      4,
+      8
+    ]
+  },
+  "acceptance": {
+    "scored_completed_correct": 32,
+    "direct_gateway_cancellation_probes_passed": 2,
+    "extra_smoke_requests": 0,
+    "waves": [
+      {
+        "name": "short",
+        "requests": 8,
+        "complete_correct": 8,
+        "peak_gateway_active": 8,
+        "max_e2e_seconds": 4.314
+      },
+      {
+        "name": "medium",
+        "requests": 8,
+        "complete_correct": 8,
+        "peak_gateway_active": 8,
+        "max_e2e_seconds": 13.763
+      },
+      {
+        "name": "mixed",
+        "requests": 8,
+        "complete_correct": 8,
+        "peak_gateway_active": 8,
+        "max_e2e_seconds": 6.59
+      },
+      {
+        "name": "nearcontext",
+        "requests": 8,
+        "complete_correct": 8,
+        "peak_gateway_active": 8,
+        "max_e2e_seconds": 61.8
+      }
+    ],
+    "full_unpadded8_padded8_native_observations": 78,
+    "graph_evidence_kind": "execution-backed replay inference; not an instrumented replay-call count"
+  },
+  "final_state": {
+    "ram_headroom_gib": 53.45,
+    "shm_available_gib": 23.57,
+    "oom_events": 0,
+    "oom_kill_events": 0,
+    "swap_bytes": 0,
+    "engine_running": 0,
+    "engine_waiting": 0,
+    "native_transfer_usage_gauges": 0,
+    "authenticated_metrics_http": 200,
+    "unauthenticated_metrics_http": 401,
+    "gpu_exporter_healthy": true,
+    "watchdog_disarmed_and_exited": true,
+    "retained": true,
+    "rollback_performed": false
+  },
+  "limitations": [
+    "32 functional scored outcomes do not establish a sustained-capacity or p95 qualification.",
+    "Native graph evidence is execution-backed replay inference, not an instrumented replay-call count.",
+    "Hosted frontend cancellation is a parent-verified emitted configuration setting; this rollout did not add a hosted disconnect generation probe."
+  ]
+}
