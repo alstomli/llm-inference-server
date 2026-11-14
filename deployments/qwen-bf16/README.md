@@ -1,15 +1,11 @@
 # Qwen3.8-27B original BF16 deployment
 
-**Current deployment: verified official vLLM image 0.10.1.** See the
-[current deployment and verification guide](VLLM-IMAGE.md) for its configuration,
-startup, and rollback procedure. The body below preserves the earlier
-PyTorch-template deployment record; its `bootstrap.sh` and start commands are
-not the current Pod startup.
+This is the historical November 2 PyTorch-template deployment record. See the [dated runtime snapshot](CURRENT.md) for the later configured service and the [official image record](VLLM-IMAGE.md) for the subsequent image migration. Historical Pod IDs and measured values below must not be used as current deployment targets.
 
 Deployment date: November 2, 2026 (America/New_York).
 
 This directory records the deployment on Runpod Pod `ftntkktzid9f4p`
-(`ideological_plum_ferret`) and contains its startup files. Full runtime
+(`ideological_plum_ferret`) and records its retired startup flow. Full runtime
 verification results are saved on the global volume at
 `/workspace/qwen-bf16/verification.json`; the observed results are summarized below.
 
@@ -44,8 +40,8 @@ migrated as part of this standalone deployment.
 
 Local validation passed Python compilation, shell syntax validation on the Pod,
 and three offline tests covering pinned restart reuse, corrupted-weight
-rejection, and unsafe checkpoint paths. CI runs those staging tests and the new
-bootstrap syntax check as part of the existing image-check workflow.
+rejection, and unsafe checkpoint paths. The current CI retains checkpoint staging tests; the obsolete template bootstrap
+and its syntax check have been removed.
 
 ## Pod and storage
 
@@ -68,7 +64,7 @@ on the global volume. No Python environment is installed on the global volume.
 
 ## Model settings
 
-`config.json` is the deployed configuration:
+The historical template configuration was:
 
 - Original repository: `Qwen/Qwen3.8-27B`, pinned to a commit at first download.
 - Model weights and execution dtype: BF16; no quantization option.
@@ -89,101 +85,13 @@ placement guarantee. Reducing it uses more VRAM; increasing it uses more system
 RAM and typically increases transfer overhead. Context, concurrency, and working
 memory also consume VRAM.
 
-## Files and startup
+## Retired startup and monitoring
 
-Persistent files:
+The PyTorch-template startup scripts and duplicate monitoring procedure were removed after the official image launcher replaced them. Their immutable [historical source](https://github.com/alstomli/llm-inference-server/tree/6685b0e/deployments/qwen-bf16) remains available for interpreting these measurements. Do not run that startup procedure on the current service.
 
-```text
-/workspace/qwen-bf16/
-  bootstrap.sh
-  config.json
-  prepare_model.py
-  serve.py
-  verify.py
-  README.md
-  model/                   # original checkpoint files
-  model-manifest.json      # pinned commit, file hashes/sizes, tensor dtypes
-  verification.json        # actual API/generation/memory checks
-  requirements-resolved.txt
-```
+Monitoring verification on the original November 2 Pod passed: missing token returned 401, wrong token returned 401, correct token returned 200 with vLLM/GPU metrics, and an authenticated model route returned 404. Its relay used port 8889 while Jupyter used 8888. These are historical access checks, not a current health assertion.
 
-Local, ephemeral files:
-
-```text
-/opt/qwen-bf16/venv/        # isolated vLLM environment
-/opt/qwen-bf16/download/    # one temporary checkpoint file at a time
-/opt/qwen-bf16/hf-cache/
-/opt/qwen-bf16/vllm-cache/
-/tmp/qwen-bf16.lock         # prevents duplicate deployments
-/tmp/qwen-bf16-bootstrap.log
-```
-
-The Pod's original container start-command override was empty. It was changed to:
-
-```bash
-bash -c 'bash /workspace/qwen-bf16/bootstrap.sh >>/tmp/qwen-bf16-bootstrap.log 2>&1 & exec /start.sh'
-```
-
-This runs the model bootstrap in the background and retains the template's
-normal `/start.sh`, which starts Jupyter and SSH. The Pod image, exposed ports,
-and attached volume are preserved. Editing the Pod resets its container;
-the global volume retains the deployment files and model.
-
-The bootstrap installs `vllm==0.32.0` and `transformers>=5.8.0,<6` in an isolated
-virtual environment. It recreates this environment after container replacement.
-The live verification saves the exact installed package versions in
-`requirements-resolved.txt`; that file can be used with `pip install -r` to
-reproduce the verified environment instead of resolving the version range again.
-Model downloads use local staging and locks, then copy one verified file at a
-time onto the global volume, so the complete checkpoint need not fit on the
-50 GB container disk. Large-file SHA-256 values are checked against Hugging Face
-metadata. The manifest pins the checkpoint commit and permits completed files
-to be reused on restart. Incomplete transfers are not marked complete. A corrupt
-manifest stops the deployment for inspection rather than silently selecting a
-different revision.
-
-## Inspect and use the deployment
-
-Run commands in the Pod's Jupyter terminal:
-
-```bash
-tail -n 60 /tmp/qwen-bf16-bootstrap.log
-nvidia-smi
-cat /sys/fs/cgroup/memory.current
-curl --fail http://127.0.0.1:8000/health
-curl --fail http://127.0.0.1:8000/v1/models
-```
-
-Example generation:
-
-```bash
-curl --fail http://127.0.0.1:8000/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"qwen-bf16","messages":[{"role":"user","content":"Reply with a short greeting."}],"max_tokens":128,"chat_template_kwargs":{"enable_thinking":false}}'
-```
-
-The model API is private to the Pod. Use an SSH tunnel after configuring SSH
-access, or run API clients in the Pod. Jupyter retains its existing authentication.
-Publishing a model endpoint requires a separate authenticated ingress setup.
-
-## Restart, tuning, and rollback
-
-- A Pod restart runs the saved start command automatically. If the container
-  filesystem was replaced, package installation repeats; completed model files
-  are reused from the global volume.
-- If the model exits while the Pod/Jupyter remain running, inspect the log,
-  correct the cause, and launch `nohup bash /workspace/qwen-bf16/bootstrap.sh
-  >>/tmp/qwen-bf16-bootstrap.log 2>&1 </dev/null &`. The local lock prevents a
-  second live model instance. This launcher is not an automatic crash supervisor.
-- To tune offloading, context, or concurrency, edit the corresponding value in
-  `/workspace/qwen-bf16/config.json` and restart the model/Pod. Start with small
-  prompts and check actual generation and memory use after each change.
-- To roll back the startup integration, clear the container start-command
-  override in Edit Pod and save. This resets the container and restores the
-  original PyTorch/Jupyter startup. Keep the global volume attached to retain
-  the model and deployment record.
-
-Do not store credentials in these files or publish Jupyter token URLs.
+The active image uses `scripts/start-server.sh` for supervised startup, the Go gateway by default, and the shared `scripts/metrics-relay.py`. `prepare_model.py` and its tests remain active; `config.json` supplies the model ID to checkpoint preparation, but its old context/offload fields do not override the launcher's environment. Current release and rollback steps live in the [repository README](../../README.md).
 
 ## References
 
