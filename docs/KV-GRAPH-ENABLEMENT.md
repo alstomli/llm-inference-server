@@ -25,10 +25,10 @@ context length, LoRA/vision allocations, or gateway admission limits.
 
 ## Deployment decision
 
-The historical enablement image used `Dockerfile.kv-runtime`, deriving from the
-then-running inference digest and copying only the launcher and two runtime
-helpers. That Dockerfile remains for reproducing the dated image provenance;
-normal CI and releases use `Dockerfile`, which includes the same runtime helpers.
+Normal CI and releases use `Dockerfile`, which includes the launcher and both
+runtime helpers. The historical enablement image derived from the then-running
+inference digest and copied only those files; its build definition and dated
+image provenance remain available in Git history.
 The temporary feature-branch release exception used for enablement has been
 removed: publication is restricted to `main` and the ordinary full image build.
 Deployment continues to pin a reviewed published digest. Merging this source
