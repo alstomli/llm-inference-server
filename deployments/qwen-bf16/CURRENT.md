@@ -27,7 +27,7 @@ The runtime inherits the exact preceding digest `59ff84b6a9c8ceca9aa5e568d726b5a
 
 ## Bounded acceptance and limits of the evidence
 
-All **32/32 scored requests completed correctly**, with no extra smoke requests. Each wave used eight users and reached eight active gateway requests:
+All **32/32 scored requests completed correctly**, with no extra smoke requests. Each wave used eight distinct trusted test principals and reached eight active gateway requests; no real users or accounts were created:
 
 | Wave | Workload | Correct / completed | Peak active |
 | --- | --- | --- | --- |
