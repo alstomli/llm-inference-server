@@ -1,6 +1,6 @@
 # Serve the selected QLoRA adapter through the BF16 chatbot option
 
-This is a prepared deployment configuration, not a record of a completed rollout.
+This is the original prepared deployment configuration, not a current rollout record. See [the dated runtime snapshot](CURRENT.md) for the later service configuration.
 The exact adapter still needs an actual vLLM load and streamed-chat check.
 The existing image is based on vLLM 0.32.0; a new application image containing
 this startup change and the updated gateway is required before setting these
