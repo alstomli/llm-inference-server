@@ -18,8 +18,8 @@ mapped bytes round down to whole native chunks. Launch fails if the projected
 allocation would leave less than 32 GiB cgroup RAM or 8 GiB shared memory.
 
 Decode graphs use compilation mode zero, `FULL_DECODE_ONLY`, and capture
-sizes `[1,2]`. They require zero CPU **weight** offload and the existing
-two-sequence ceiling. Eager prefill remains available through native dispatch.
+sizes `[1,2]` for two sequences or `[1,2,4,8]` for eight sequences. Intermediate active sizes pad to the next captured bucket; eight is not a request to capture every size. They require zero CPU **weight** offload and the existing
+supported two- or eight-sequence profile. Eager prefill remains available through native dispatch.
 The settings do not override the GPU cache byte budget, batched-token budget,
 context length, LoRA/vision allocations, or gateway admission limits.
 

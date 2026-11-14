@@ -64,15 +64,28 @@ func ConfigFromEnv() (Config, error) {
 		return c, errors.New("CHAT_REQUIRE_USER_ID must be true or false")
 	}
 	c.RequireUserID = required == "true"
-	for key, dest := range map[string]*int{"MAX_MODEL_LEN": &c.Context, "MAX_NUM_SEQS": &c.Concurrency, "CHAT_USER_MAX_CONCURRENT": &c.UserConcurrency, "CHAT_USER_MAX_WAITING": &c.UserQueueLimit, "CHAT_USER_RATE_LIMIT_PER_MINUTE": &c.UserRateLimit} {
+	for key, dest := range map[string]*int{"MAX_MODEL_LEN": &c.Context, "CHAT_MAX_CONCURRENT": &c.Concurrency, "CHAT_MAX_WAITING": &c.QueueLimit, "CHAT_RATE_LIMIT_PER_MINUTE": &c.RateLimit, "CHAT_USER_MAX_CONCURRENT": &c.UserConcurrency, "CHAT_USER_MAX_WAITING": &c.UserQueueLimit, "CHAT_USER_RATE_LIMIT_PER_MINUTE": &c.UserRateLimit} {
 		if raw, exists := os.LookupEnv(key); exists {
 			n, e := strconv.Atoi(raw)
-			if e != nil {
+			if e != nil || raw == "" || strings.IndexFunc(raw, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
 				return c, errors.New("invalid integer setting: " + key)
 			}
 			*dest = n
 		}
 	}
-	c.Concurrency = min(2, c.Concurrency)
+	engineRaw := envDefault("MAX_NUM_SEQS", "2")
+	engine, err := strconv.Atoi(engineRaw)
+	if err != nil || engine < 1 || engine > 8 || strings.IndexFunc(engineRaw, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return c, errors.New("MAX_NUM_SEQS must be an integer from 1 through 8")
+	}
+	if _, explicit := os.LookupEnv("CHAT_MAX_CONCURRENT"); !explicit {
+		c.Concurrency = min(2, engine)
+	}
+	if c.Concurrency > engine {
+		return c, errors.New("CHAT_MAX_CONCURRENT cannot exceed MAX_NUM_SEQS")
+	}
+	if _, err := newAdmission(c.Concurrency, c.QueueLimit, c.RateLimit, c.UserConcurrency, c.UserQueueLimit, c.UserRateLimit); err != nil {
+		return c, err
+	}
 	return c, nil
 }

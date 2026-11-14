@@ -30,7 +30,7 @@ type account struct {
 }
 
 func newAdmission(c, q, r, uc, uq, ur int) (*Admission, error) {
-	if c < 1 || c > 2 || q < 0 || q > 6 || r < 1 || r > 20 || uc < 1 || uc > c || uq < 0 || uq > q || ur < 1 || ur > r {
+	if c < 1 || c > 8 || q < 0 || q > 24 || r < 1 || r > 80 || uc < 1 || uc > c || uq < 0 || uq > q || ur < 1 || ur > r {
 		return nil, errors.New("invalid admission limits")
 	}
 	return &Admission{concurrency: c, queueLimit: q, rateLimit: r, userConcurrency: uc, userQueueLimit: uq, userRateLimit: ur, accounts: make(map[string]*account), clock: time.Now}, nil

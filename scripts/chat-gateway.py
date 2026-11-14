@@ -54,7 +54,7 @@ class AdmissionQueue:
     """
     def __init__(self, concurrency=2, queue_limit=6, rate_limit=20,
                  user_concurrency=1, user_queue_limit=1, user_rate_limit=6, clock=time.monotonic):
-        for value, maximum, minimum in ((concurrency, 2, 1), (queue_limit, 6, 0), (rate_limit, 20, 1),
+        for value, maximum, minimum in ((concurrency, 8, 1), (queue_limit, 24, 0), (rate_limit, 80, 1),
                 (user_concurrency, concurrency, 1), (user_queue_limit, queue_limit, 0),
                 (user_rate_limit, rate_limit, 1)):
             if type(value) is not int or not minimum <= value <= maximum:
@@ -222,9 +222,28 @@ def validate_docs_passages(passages):
     return passages
 
 
+def integer_setting(name, default):
+    value = os.environ.get(name, str(default))
+    if not re.fullmatch(r'[0-9]+', value):
+        raise ValueError('Invalid integer setting: ' + name)
+    return int(value)
+
+
+def capacity_from_env():
+    integer = integer_setting
+    engine = integer('MAX_NUM_SEQS', 2)
+    if not 1 <= engine <= 8:
+        raise ValueError('MAX_NUM_SEQS must be an integer from 1 through 8')
+    concurrency = integer('CHAT_MAX_CONCURRENT', min(2, engine))
+    if concurrency > engine:
+        raise ValueError('CHAT_MAX_CONCURRENT cannot exceed MAX_NUM_SEQS')
+    return concurrency, integer('CHAT_MAX_WAITING', 6), integer('CHAT_RATE_LIMIT_PER_MINUTE', 20)
+
+
 def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', context=40960, transport=None,
-               diagnostics_enabled=None, concurrency=2, base_model=None, model_profile='bf16', image_input_enabled=False,
-               require_user_id=None, user_concurrency=None, user_queue_limit=None, user_rate_limit=None):
+               diagnostics_enabled=None, concurrency=None, base_model=None, model_profile='bf16', image_input_enabled=False,
+               require_user_id=None, user_concurrency=None, user_queue_limit=None, user_rate_limit=None,
+               queue_limit=None, rate_limit=None):
     if model_profile != 'bf16':
         raise ValueError('MODEL_PROFILE must be bf16')
     if base_model is not None and (not isinstance(base_model, str) or not base_model or base_model == model):
@@ -244,10 +263,13 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', conte
         require_user_id = setting == 'true'
     if type(require_user_id) is not bool:
         raise ValueError('Invalid identity enforcement setting')
-    admission = AdmissionQueue(concurrency=concurrency,
-        user_concurrency=int(os.environ.get('CHAT_USER_MAX_CONCURRENT', '1')) if user_concurrency is None else user_concurrency,
-        user_queue_limit=int(os.environ.get('CHAT_USER_MAX_WAITING', '1')) if user_queue_limit is None else user_queue_limit,
-        user_rate_limit=int(os.environ.get('CHAT_USER_RATE_LIMIT_PER_MINUTE', '6')) if user_rate_limit is None else user_rate_limit)
+    env_concurrency, env_queue, env_rate = capacity_from_env()
+    admission = AdmissionQueue(concurrency=env_concurrency if concurrency is None else concurrency,
+        queue_limit=env_queue if queue_limit is None else queue_limit,
+        rate_limit=env_rate if rate_limit is None else rate_limit,
+        user_concurrency=integer_setting('CHAT_USER_MAX_CONCURRENT', 1) if user_concurrency is None else user_concurrency,
+        user_queue_limit=integer_setting('CHAT_USER_MAX_WAITING', 1) if user_queue_limit is None else user_queue_limit,
+        user_rate_limit=integer_setting('CHAT_USER_RATE_LIMIT_PER_MINUTE', 6) if user_rate_limit is None else user_rate_limit)
 
     client = httpx.AsyncClient(base_url=upstream, headers=headers, transport=transport,
                                timeout=httpx.Timeout(60, connect=5), follow_redirects=False)
@@ -654,7 +676,6 @@ if __name__ == '__main__':
                      base_model=(os.environ.get('VLLM_BASE_MODEL_NAME') or os.environ.get('SERVED_MODEL_NAME', 'qwen-bf16') + '-base') if os.environ.get('LORA_ADAPTER_PATH') else None,
                      upstream='http://127.0.0.1:' + os.environ.get('VLLM_PORT', '8000'),
                      context=int(os.environ.get('MAX_MODEL_LEN', '40960')),
-                     concurrency=min(2, int(os.environ.get('MAX_NUM_SEQS', '2'))),
                      model_profile=os.environ.get('MODEL_PROFILE', 'bf16'),
                      image_input_enabled=os.environ.get('CHAT_IMAGE_INPUT_ENABLED') == 'true')
     uvicorn.run(app, host=os.environ.get('CHAT_HOST', '127.0.0.1'),

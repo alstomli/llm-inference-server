@@ -202,6 +202,28 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.assertIn('--cudagraph-metrics', args)
         self.assertEqual(json.loads(args[args.index('--limit-mm-per-prompt') + 1]), {'image': 1, 'video': 0})
 
+    def test_eight_sequence_graph_profile_uses_padded_capture_buckets(self):
+        args_file = self.root / 'eight-args.json'
+        self.start(METRICS_ENABLED='false', FAKE_ARG_FILE=str(args_file), CPU_OFFLOAD_GB='0',
+                   MAX_NUM_SEQS='8', CUDA_DECODE_GRAPHS='true')
+        self.ready(8000)
+        args = json.loads(args_file.read_text())
+        self.assertEqual(args[args.index('--max-num-seqs') + 1], '8')
+        self.assertEqual(args[args.index('--max-model-len') + 1], '40960')
+        self.assertEqual(args[args.index('--cpu-offload-gb') + 1], '0')
+        self.assertEqual(json.loads(args[args.index('--compilation-config') + 1]),
+                         {'mode': 0, 'cudagraph_mode': 'FULL_DECODE_ONLY', 'cudagraph_capture_sizes': [1, 2, 4, 8]})
+        self.assertNotIn('--enforce-eager', args)
+        self.assertNotIn('--worker-cls', args)
+        self.assertNotIn('--middleware', args)
+
+    def test_graph_profile_still_rejects_cpu_weight_offload(self):
+        self.start(CPU_OFFLOAD_GB='1', MAX_NUM_SEQS='8', CUDA_DECODE_GRAPHS='true')
+        output = self.process.communicate(timeout=10)[0]
+        self.assertEqual(self.process.returncode, 1)
+        self.assertIn('Decode graphs require zero weight offload', output)
+        self.closed(8000)
+
     def test_proof_flags_preserve_lora_registration_and_base_alias(self):
         guard = self.root / 'guard.py'
         guard.write_text('pass\n')
@@ -227,7 +249,7 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.start(CPU_OFFLOAD_GB='0', MAX_NUM_SEQS='3', CUDA_DECODE_GRAPHS='true')
         output = self.process.communicate(timeout=10)[0]
         self.assertEqual(self.process.returncode, 1)
-        self.assertIn('verified two-sequence ceiling', output)
+        self.assertIn('supported two- or eight-sequence profile', output)
         self.closed(8000)
 
     def test_invalid_native_capacity_fails_closed(self):
