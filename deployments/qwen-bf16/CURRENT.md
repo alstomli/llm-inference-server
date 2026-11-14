@@ -52,4 +52,6 @@ The [November 13 snapshot](https://github.com/alstomli/llm-inference-server/blob
 - [Repository operations](../../README.md), [Go gateway and Python fallback](../../docs/GATEWAY-GO.md), and [checkpoint staging](prepare_model.py).
 - [First official image record](VLLM-IMAGE.md), [earlier RTX PRO 6000 migration](RTX6000-MIGRATION.md), [original template measurements](README.md), and [LoRA setup](LORA-SERVING.md) retain historical/setup context.
 
+An image-only rollback to **0.17.0** while retaining `MAX_NUM_SEQS=8` fails that release's two-sequence graph startup guard. Restore the prior digest **and** `MAX_NUM_SEQS=2`, with gateway overrides restored to **2/6/20** or removed to recover their prior defaults. Preserve the CPU KV/weight-offload and graph flags from the fresh rollback snapshot; do not disable features ad hoc to bypass the guard. The image-only deployment workflow preserves environment settings and cannot perform this profile restoration by itself.
+
 Use private current service bindings rather than copying old Pod origins. Future rollback requires a fresh approved snapshot and reviewed immutable image/configuration; do not reuse the completed rollout's lease or safety files. This documentation update changes no runtime, hosted database or frontend deployment.
