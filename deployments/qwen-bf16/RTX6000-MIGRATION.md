@@ -1,6 +1,6 @@
 # BF16 migration to RTX PRO 6000
 
-This guide retains the dated hardware migration evidence. Current releases support
+This guide retains the earlier hardware migration evidence. See [the dated runtime snapshot](CURRENT.md) for the later configured service; Pod IDs, endpoints and rollback targets below describe that migration only. Current releases support
 only BF16; historical multi-model checks below do not define current deployment targets.
 
 The original unquantized checkpoint is served by RTX PRO 6000 Blackwell Server

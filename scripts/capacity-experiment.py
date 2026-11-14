@@ -1,0 +1,271 @@
+"""Deadline-budgeted experiment controller, executed inside the existing pod."""
+import asyncio,hashlib,importlib.util,json,os,pickle,signal,subprocess,sys,time
+from pathlib import Path
+import aiohttp
+
+ROOT=Path('/workspace/capacity-session');RESULTS=ROOT/'results';RESULTS.mkdir(exist_ok=True)
+spec=importlib.util.spec_from_file_location('capacity',ROOT/'benchmark-capacity.py');b=importlib.util.module_from_spec(spec);sys.modules['capacity']=b;spec.loader.exec_module(b)
+LEASE=json.loads((ROOT/'lease.json').read_text());RUNTIME=json.loads((ROOT/'runtime.json').read_text())
+STOP=LEASE['created']+5700
+STARTED=LEASE['created']
+history=[]
+attempt_file=ROOT/'controller.attempt'
+ATTEMPT=int(attempt_file.read_text())+1 if attempt_file.exists() else 0
+attempt_file.write_text(str(ATTEMPT))
+
+class Prompts:
+    def __init__(self):
+        with (ROOT/'prompts.private.pickle').open('rb') as f:data=pickle.load(f)
+        self.items,self.size=data['items'],data['size']
+    def get(self,workload,i):
+        if i>=self.size:raise ValueError('Pool exhausted')
+        return self.items[workload][i]
+
+PROMPTS=Prompts()
+
+def event(kind,**values):
+    row={'t':time.time(),'elapsed_s':time.time()-STARTED,'event':kind,**values}
+    with (RESULTS/'experiment.events.jsonl').open('a') as f:f.write(json.dumps(row)+'\n')
+    print(json.dumps(row),flush=True)
+
+def config():
+    status=json.loads((ROOT/'engine.status.json').read_text())
+    assert status['state']=='ready'
+    return status['config']
+
+async def healthy(session):
+    try:
+        async with session.get('http://127.0.0.1:8000/health',headers=HEADERS,timeout=aiohttp.ClientTimeout(total=5)) as r:return r.status==200
+    except (aiohttp.ClientError,TimeoutError):return False
+
+HEADERS={'Authorization':'Bearer '+os.environ['VLLM_API_KEY']} if os.getenv('VLLM_API_KEY') else {}
+
+async def prepare_scenario(session):
+    assert await healthy(session),'Engine unhealthy before scenario'
+    await drain()
+    # vLLM0.32 reset routes are dev-mode-only. Unique cache_salt is supported by
+    # production CompletionRequest and isolates every request without changing
+    # production security settings or depending on unavailable admin routes.
+
+async def run(name,workload,c,duration=120,max_requests=1024,rate=0,force=True,wall=None,allow_overload=False):
+    logical_name=name
+    if ATTEMPT:name += '-retry'+str(ATTEMPT)
+    remaining=STOP-time.time()
+    if remaining<45:
+        event('skipped',name=name,reason='global_budget');return None
+    conf=config()
+    wall=min(wall or duration+180,remaining)
+    cfg=b.Config(name=name,workload=workload,concurrency=c,duration=min(duration,max(1,wall-15)),wall_seconds=wall,
+                 max_requests=max_requests,arrival_rate=rate,max_backlog=min(1024,max(16,c*2)),seed=12345,
+                 force_length=force,max_num_seqs=conf['sequences'],max_num_batched_tokens=conf['batched_tokens'],
+                 runtime_fingerprint=RUNTIME['fingerprint'],cache_namespace=LEASE['lease_id'],scenario_kind=('warmup' if name.startswith('warm-') else 'natural_stop' if not force else 'sustained' if rate else 'tuning' if name.startswith('batch-') else 'capacity'))
+    candidates=[RESULTS/(logical_name+'.summary.json'),*RESULTS.glob(logical_name+'-retry*.summary.json')]
+    classifications=json.loads((RESULTS/'scenario-classifications.json').read_text()) if (RESULTS/'scenario-classifications.json').exists() else {}
+    for path in sorted((p for p in candidates if p.exists()),key=lambda p:p.stat().st_mtime,reverse=True):
+        try:existing=json.loads(path.read_text())
+        except ValueError:continue
+        if classifications.get(existing['config']['name'],{}).get('measurement_state')=='cold_mixed':continue
+        if b.completed_scenario_matches(existing,cfg,LEASE['lease_id']):
+            event('scenario_resumed',name=existing['config']['name'],outcomes=existing['outcomes'],exact_config_and_isolation_verified=True)
+            history.append(existing);return existing
+    await prepare_scenario(SESSION)
+    baseline=await counters()
+    event('scenario_start',name=name,workload=workload,concurrency=c,rate=rate,config=conf,duration=cfg.duration)
+    runner=b.Runner(cfg,PROMPTS,b.Writer(RESULTS,cfg),api_key=os.getenv('VLLM_API_KEY'))
+    async def saturation_probe():
+        await asyncio.sleep(min(30,cfg.duration/2))
+        await gpu(name+'-under-load')
+    probe=asyncio.create_task(saturation_probe())
+    try:summary=await runner.run();history.append(summary)
+    finally:
+        probe.cancel();await asyncio.gather(probe,return_exceptions=True)
+    event('scenario_end',name=name,outcomes=summary['outcomes'],success=summary['success_rate'],
+          output_tokens_s=summary['output_tokens_s'],ttft_p95_s=summary['ttft_s']['p95'],tpot_p95_s=summary['avg_tpot_s']['p95'],stopped=summary['stopped'])
+    assert summary['all_outcomes_accounted'],'Missing outcomes'
+    if not await healthy(SESSION):raise RuntimeError('Engine lost health')
+    overloaded=summary['stopped']=='failure_rate_exceeded_5_percent' or (cfg.scenario_kind=='warmup' and summary['success_rate']!=1)
+    # Ensure no accepted requests remain active before the next scenario.
+    await drain()
+    final=await counters()
+    preemptions=max(0,final.get('num_preemptions_total',0)-baseline.get('num_preemptions_total',0))
+    summary['controller_overload']=overloaded
+    summary['controller_preemptions_delta']=preemptions
+    (RESULTS/(name+'.control.json')).write_text(json.dumps({'baseline':baseline,'final':final,'overload':overloaded,'preemptions_delta':preemptions,'engine_health_and_drain_verified':True}))
+    if overloaded or preemptions:event('stage_capacity_boundary',name=name,overload=overloaded,preemptions_delta=preemptions,engine_health_and_drain_verified=True)
+    if overloaded and not allow_overload:raise RuntimeError('Failure threshold')
+    return summary
+
+async def gpu(label):
+    fields=['power.draw','power.limit','clocks.current.sm','clocks_event_reasons.active','clocks_event_reasons.hw_power_brake_slowdown']
+    values={}
+    for field in fields:
+        p=await asyncio.create_subprocess_exec('nvidia-smi','--query-gpu='+field,'--format=csv,noheader,nounits',stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL)
+        raw,_=await p.communicate()
+        if p.returncode==0:values[field]=raw.decode().strip()
+    event('gpu_diagnostics',label=label,values=values)
+
+async def counters():
+    values={}
+    try:
+        async with SESSION.get('http://127.0.0.1:8000/metrics',headers=HEADERS,timeout=aiohttp.ClientTimeout(total=2)) as r:
+            text=await r.text()
+        for line in text.splitlines():
+            if line.startswith('#'):continue
+            pieces=line.rsplit(' ',1)
+            if len(pieces)!=2:continue
+            key=pieces[0].split('{')[0].removeprefix('vllm:')
+            if key in ['num_requests_running','num_requests_waiting','prompt_tokens_total','generation_tokens_total','num_preemptions_total']:
+                values[key]=values.get(key,0)+float(pieces[1])
+    except (aiohttp.ClientError,ValueError,TimeoutError):pass
+    return values
+
+async def drain():
+    until=min(time.time()+30,STOP)
+    while time.time()<until:
+        sample=await counters()
+        if sample.get('num_requests_running')==0 and sample.get('num_requests_waiting')==0:return
+        await asyncio.sleep(.25)
+    raise RuntimeError('Engine did not drain to zero running and waiting')
+
+async def pair(phase,repetition):
+    if time.time()>min(STOP,STARTED+4500):return
+    name=f'pair-{phase}-{repetition}';await prepare_scenario(SESSION);conf=config()
+    cfg=b.Config(name=name,workload='long',concurrency=2,duration=180,wall_seconds=200,
+                 max_num_seqs=conf['sequences'],max_num_batched_tokens=conf['batched_tokens'],runtime_fingerprint=RUNTIME['fingerprint'],scenario_kind='stagger')
+    runner=b.Runner(cfg,PROMPTS,b.Writer(RESULTS,cfg),api_key=os.getenv('VLLM_API_KEY'))
+    runner.started=time.monotonic();runner.arrivals_end=runner.started+180
+    baseline=await counters();evidence=[];verified=phase=='simultaneous'
+    a=runner.new_row(time.monotonic());a['workload']='long'
+    first=asyncio.create_task(runner.request(SESSION,a))
+    try:
+        if phase!='simultaneous':
+            end=time.monotonic()+30
+            while time.monotonic()<end and not first.done():
+                current=await counters()
+                delta_prompt=current.get('prompt_tokens_total',0)-baseline.get('prompt_tokens_total',0)
+                delta_output=current.get('generation_tokens_total',0)-baseline.get('generation_tokens_total',0)
+                active=current.get('num_requests_running',0)
+                evidence.append({'t_s':time.monotonic()-runner.started,'prompt_delta':delta_prompt,'output_delta':delta_output,'running':active})
+                if phase=='prefill' and active==1 and delta_prompt>0 and delta_output==0:verified=True;break
+                if phase=='decode' and active==1 and delta_output>0:verified=True;break
+                await asyncio.sleep(.02)
+        second=runner.new_row(time.monotonic());second['workload']='short'
+        event('pair_B_submission',name=name,phase=phase,phase_verified=verified,a_still_active=not first.done(),server_evidence=evidence[-3:])
+        await asyncio.wait_for(asyncio.gather(first,runner.request(SESSION,second)),180)
+    finally:
+        if not first.done():first.cancel();await asyncio.gather(first,return_exceptions=True)
+        summary=b.aggregate(cfg,runner.records,time.monotonic()-runner.started,runner.peak_outstanding)
+        summary.update(phase=phase,phase_verified=verified,phase_evidence=evidence,all_outcomes_accounted=len(runner.records)==runner.next_id)
+        runner.writer.close(summary);history.append(summary)
+
+async def change_batch(tokens):
+    desired={**config(),'batched_tokens':tokens}
+    event('scheduler_change_start',config=desired)
+    temp=ROOT/'desired.tmp';temp.write_text(json.dumps(desired));temp.replace(ROOT/'desired.json')
+    until=min(time.time()+900,STOP-240)
+    while time.time()<until:
+        await asyncio.sleep(3)
+        try:
+            s=json.loads((ROOT/'engine.status.json').read_text())
+            if s['state']=='ready' and s['config']==desired and await healthy(SESSION):
+                event('scheduler_change_ready',config=desired);return True
+        except (ValueError,FileNotFoundError):pass
+    event('scheduler_change_failed',config=desired);return False
+
+async def main():
+    global SESSION
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None),trust_env=False) as SESSION:
+        event('experiment_ready',runtime=RUNTIME,config=config())
+        await gpu('idle')
+        # Preparation/warmup capped at15min from exclusive activation.
+        await run('warm-short','short',1,duration=60,max_requests=2,wall=90)
+        await run('warm-medium','medium',1,duration=60,max_requests=2,wall=90)
+        await run('warm-long','long',1,duration=60,max_requests=2,wall=90)
+        await run('natural-stop-validation','short',2,duration=120,max_requests=12,force=False,wall=180)
+        ceiling=config()['sequences'];sweep=[];low_gains=0;previous=None
+        sweep_end=min(STARTED+3900,STOP-1800)
+        for c in [1,2,4,8,16,32,64,128,256]:
+            if c>ceiling or time.time()+200>sweep_end:
+                event('skipped',name='medium-sweep-'+str(c),reason='ceiling_or_sweep_budget');break
+            if c>1:
+                warm=await run('warm-shape-'+str(c),'medium',c,duration=1,max_requests=c,wall=min(180,sweep_end-time.time()),allow_overload=True)
+                if warm is None or warm.get('controller_overload') or warm.get('controller_preemptions_delta',0)>0:
+                    event('sweep_stop',reason='warm_shape_capacity_boundary',concurrency=c);break
+            sample=await run('medium-sweep-'+str(c),'medium',c,duration=120 if c==1 else 90,wall=min(270,sweep_end-time.time()),allow_overload=True)
+            if sample is None:break
+            sweep.append(sample)
+            if sample.get('controller_overload') or sample.get('controller_preemptions_delta',0)>0:
+                event('sweep_stop',reason='measured_capacity_boundary',concurrency=c);break
+            if previous and sample['output_tokens_s']<previous*1.05:low_gains+=1
+            else:low_gains=0
+            previous=sample['output_tokens_s']
+            if low_gains>=2:
+                event('sweep_stop',reason='two_consecutive_gains_below_5_percent',concurrency=c);break
+        assert sweep,'No primary sweep evidence'
+        stable=[s for s in sweep if s['success_rate']>=.99 and not s.get('controller_overload') and not s.get('controller_preemptions_delta',0)]
+        assert stable,'No stable primary sweep evidence'
+        peak=max(s['output_tokens_s'] for s in stable)
+        knee=min(s['config']['concurrency'] for s in stable if s['output_tokens_s']>=peak*.95)
+        provisional=[s['config']['concurrency'] for s in sweep if s['success_rate']>=.99 and (s['ttft_s']['p95'] or 1e9)<=5 and (s['avg_tpot_s']['p95'] or 1e9)<=.1]
+        candidate=max(provisional) if provisional else 1
+        event('primary_boundary',knee=knee,provisional_chat_candidate=candidate,ceiling=ceiling)
+        mixed=await run('mixed-boundary','mixed',min(ceiling,max(candidate,knee)),duration=150,wall=330)
+        if mixed:
+            rate=mixed['completed_requests_s']
+            for ratio in [.5,.8,1,1.2]:
+                if time.time()>STOP-720:
+                    event('skipped',name='open-loop-'+str(ratio),reason='sustain_budget');continue
+                await run('open-loop-'+str(ratio),'mixed',min(ceiling,max(candidate,knee)),duration=100,
+                          rate=rate*ratio,wall=min(280,STOP-600-time.time()))
+        # Both workloads need100 actual outcomes for a validated chat capacity.
+        # If the remaining wall budget prevents that, retain provisional evidence.
+        for workload in ['medium','short']:
+            remaining=STOP-time.time()
+            if remaining<120:
+                event('skipped',name='validate-'+workload,reason='validation_budget');continue
+            allowance=min(540,max(120,remaining/2))
+            await run('validate-'+workload+'-'+str(candidate),workload,candidate,
+                      duration=max(1,allowance-120),max_requests=100,wall=allowance)
+        for c in sorted({max(1,knee//2),knee,min(ceiling,knee*2)}):
+            if time.time()>STOP-600:
+                event('skipped',name='homogeneous-boundary-'+str(c),reason='extras_budget');continue
+            await run('short-boundary-'+str(c),'short',c,duration=75,wall=180)
+            await run('long-boundary-'+str(c),'long',c,duration=75,wall=240)
+        for rep in range(3):
+            for phase in ['simultaneous','prefill','decode']:
+                if time.time()>STOP-420:
+                    event('skipped',name=f'pair-{phase}-{rep}',reason='stagger_budget');continue
+                await pair(phase,rep)
+        # The observed9.8min weight reload and initial setup overrun make extra
+        # restarts lower priority than validated primary/sustained evidence.
+        event('experiment_complete',scenarios=len(history),knee=knee,candidate=candidate)
+        event('skipped',name='batched-token-tuning',reason='observed_reload_cost_and_setup_overrun')
+
+async def pause_for_retry():
+    global SESSION
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None),trust_env=False) as SESSION:
+        if not await healthy(SESSION):return False
+        try:await drain()
+        except Exception:return False
+        event('harness_paused',maintenance_active=True,engine_healthy=True,engine_running_waiting_zero=True)
+        until=min(STOP,time.time()+600)
+        while time.time()<until:
+            if not await healthy(SESSION):return False
+            marker=ROOT/'retry.controller'
+            if marker.exists():marker.unlink();return True
+            await asyncio.sleep(2)
+    return False
+
+if __name__=='__main__':
+    failed=False
+    try:asyncio.run(main())
+    except BaseException as e:
+        failed=True
+        event('experiment_stopped',error_type=type(e).__name__,fixed_message=str(e) if str(e) in ['Engine unhealthy before scenario','Failure threshold','Payload preflight failed','Engine lost health','Engine did not drain to zero running and waiting'] else 'details suppressed')
+    finally:
+        try:b.analyze(RESULTS)
+        except Exception as e:event('analysis_partial',error_type=type(e).__name__)
+        if failed and asyncio.run(pause_for_retry()):
+            os.execv(sys.executable,[sys.executable,str(ROOT/'experiment.py')])
+        (ROOT/'restore.remote').write_text('deadline or completed')
+        event('restore_requested')
