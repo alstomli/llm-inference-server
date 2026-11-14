@@ -43,6 +43,15 @@ TTFT, reported completion-token throughput and gateway diagnostics for one text
 request, two text requests, and text plus image. It uses two stable principals
 and the same BF16 base model for all scenarios, without changing server settings.
 
+The [private continuous-batching benchmark](docs/CAPACITY-BENCHMARK.md) measures
+base-text engine capacity from inside the Pod, with bounded concurrency, seeded
+open-loop arrivals, exact token accounting, and partial reports. It requires an
+exclusive maintenance window and independently verified restoration. Its results
+are separate from public gateway admission limits.
+
+See the [November 11 capacity report](docs/CAPACITY-RESULTS-2026-11-11.md) for
+measured workload-specific limits, queue traces, and verified restoration.
+
 ## Prepare the inference image
 
 Build a new immutable **x86-64 Linux** image using **Build and publish release**;
