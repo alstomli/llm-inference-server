@@ -18,7 +18,7 @@ Keep `MAX_MODEL_LEN=40960`, `GPU_MEMORY_UTILIZATION=0.90`, `CPU_OFFLOAD_GB=0`, `
 
 ## Exact image dependency boundary
 
-The normal Dockerfile retains the digest-pinned Go builder and rebuilds the gateway from reviewed source. Its runtime base is `zihan000/qwen-inference@sha256:59ff84b6a9c8ceca9aa5e568d726b5a5f3f72959229cacc622cf83257757f50d`, the previously deployed stack originally based on vLLM 0.32.0. It overlays the Go binary and all maintained launcher, model-preparation, adapter-validation, Jupyter, metrics, Python fallback and KV helper files. There is no runtime pip install or mutable vendor-tag resolution. A future vendor/dependency refresh requires a separate reviewed base update. CI and main-only releases use this same Dockerfile; the historical derivative Dockerfile is not selected by a branch exception.
+The normal Dockerfile retains the digest-pinned Go builder and rebuilds the gateway from reviewed source. Its runtime base is `zihan000/qwen-inference@sha256:59ff84b6a9c8ceca9aa5e568d726b5a5f3f72959229cacc622cf83257757f50d`, the previously deployed stack originally based on vLLM 0.32.0. It overlays the Go binary and all maintained launcher, model-preparation, adapter-validation, Jupyter, metrics, Python fallback and KV helper files. There is no runtime pip install or mutable vendor-tag resolution. A future vendor/dependency refresh requires a separate reviewed base update. CI and main-only releases use this same Dockerfile.
 
 ## Controlled rollout order for a future change
 

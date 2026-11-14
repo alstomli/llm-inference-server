@@ -1,7 +1,0 @@
-# Historical enablement provenance; normal CI/releases use Dockerfile.
-# Preserve the then-deployed vendor, gateway and model preparation stack.
-FROM zihan000/qwen-inference@sha256:37c29b080780178ceeb2f9481118b7e46fd7f08f0371124ac7fca8533dc8473d
-COPY scripts/start-server.sh /usr/local/bin/start-server
-COPY scripts/kv-runtime-config.py /usr/local/lib/kv-runtime-config.py
-COPY scripts/kv_runtime.py /usr/local/lib/python3.12/dist-packages/kv_runtime.py
-RUN chmod +x /usr/local/bin/start-server
