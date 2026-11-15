@@ -511,3 +511,15 @@ func TestWebRejectsTruncatedNoToolResponse(t *testing.T) {
 		t.Fatal("truncated no-tool planner response must remain rejected")
 	}
 }
+
+func TestWebFinalEmptyContentFailsClosed(t *testing.T) {
+	for _, content := range []string{"", "   "} {
+		w := httptest.NewRecorder()
+		run := webRun{s: &chatState{w: w}, ctx: context.Background(), id: "empty"}
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"content": content}, "finish_reason": "stop"}}})
+		run.streamFinal(strings.NewReader("data: " + string(raw) + "\n\ndata: [DONE]\n\n"))
+		if strings.Contains(w.Body.String(), `"outcome":"completed"`) || !strings.Contains(w.Body.String(), `"outcome":"failed"`) {
+			t.Fatal("empty answer reported success", w.Body.String())
+		}
+	}
+}
