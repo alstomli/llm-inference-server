@@ -1,0 +1,2357 @@
+{
+  "semanticAcceptance": "BLOCKED",
+  "evaluatedGatewayCode": "d60242bf02cc68382ee076a9f3a588f8e4df19f5",
+  "notes": [
+    "Synthetic prompts only. Answer previews are model outputs, not verified current facts.",
+    "Raw tool bodies are omitted. Completed output and tool-selection match do not imply grounded acceptance.",
+    "Baseline28 final finish reason was not retained; focused13 retains it.",
+    "Focused page case fetched an article about example.com, not the target itself; current-target summary remains unverified."
+  ],
+  "baseline28": [
+    {
+      "case": "stable-kv",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Explain KV cache in an LLM in three sentences."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 509,
+      "answerPreview": "The KV cache is a memory optimization technique that stores the Key and Value vectors generated during the attention mechanism for all previously processed tokens. By caching these values, the model avoids recalculating them for every new token, significantly reducing computational overhead and speeding up the autoregressive generation process. However, this efficiency comes at the cost of increased memory usage, as the cache size grows linearly with the sequence length and the number of attention heads.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "stable-paraphrase",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Why does attention reuse keys and values between generated tokens?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 3091,
+      "answerPreview": "Attention reuses keys and values between generated tokens primarily for **computational efficiency** and **mathematical consistency** within the autoregressive generation process. This mechanism is known as the **KV Cache**.\n\nHere is a detailed breakdown of why this is done:\n\n### 1. Computational Efficiency (Avoiding Redundant Calculations)\nIn a standard Transformer, the Key ($K$) and Value ($V$) vectors for a token are derived from its hidden state via linear projections:\n$$ K = W_K \\cdot h $$\n$$ V = W_V \\cdot h $$\n\nWhen generating a new token at time step $t$, the model needs to compute the attention scores between the new query ($Q_t$) and **all** previous keys ($K_1, ..., K_{t-1}$).\n*   **Without KV Cache:** To compute attention for token $t$, the model would have to re-process the ent",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "math",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 17 times 23?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 23,
+      "answerPreview": "17 times 23 is **391**.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "write",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a friendly two-sentence thank-you note."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 95,
+      "answerPreview": "Thank you so much for your kindness and support, it truly made my day. I really appreciate you!",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "code",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Show a Python function that reverses a string."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 499,
+      "answerPreview": "```python\ndef reverse_string(s: str) -> str:\n    \"\"\"\n    Reverses the input string.\n    \n    Args:\n        s: The string to reverse.\n        \n    Returns:\n        The reversed string.\n    \"\"\"\n    return s[::-1]\n```\n\n**Example usage:**\n\n```python\nprint(reverse_string(\"hello\"))  # Output: \"olleh\"\nprint(reverse_string(\"Python\")) # Output: \"nohtyP\"\n```\n\nThis uses Python's slice notation `[::-1]`, which creates a new string with the characters in reverse order. It's concise, readable, and efficient.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "supplied-price",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Use only this text: iPhone 16 costs $650 at Shop A and $700 at Shop B. Which is cheaper?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 18,
+      "answerPreview": "Shop A is cheaper.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "summarize",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Summarize only this text: Our launch moved from Monday to Friday because QA found a bug."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 77,
+      "answerPreview": "The launch was postponed from Monday to Friday due to a bug discovered by QA.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "translate",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Translate to French: Please look up from your desk."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 84,
+      "answerPreview": "Please look up from your desk.\n\n**S'il vous plaît, levez les yeux de votre bureau.**",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "no-browse",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Do not browse. Explain what a phone price comparison should consider."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 3319,
+      "answerPreview": "When comparing phone prices, it is important to look beyond the initial sticker price to understand the true value and total cost of ownership. Here are the key factors to consider:\n\n### 1. **Total Cost of Ownership (TCO)**\n*   **Subsidies vs. Upfront Cost:** A phone might appear \"free\" or cheap with a carrier contract, but this is often offset by higher monthly service fees or mandatory data plans. Compare the total cost over 24–36 months.\n*   **Trade-in Value:** If you have an old device, its trade-in credit can significantly lower the effective price. Ensure you know the current trade-in value before comparing final prices.\n*   **Accessories:** Factor in the cost of essential accessories like cases, screen protectors, and charging cables, especially if the new phone does not include a c",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "no-browse-current",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Without searching the web, tell me whether you can verify the current iPhone 16 price."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 578,
+      "answerPreview": "No, I cannot verify the current iPhone 16 price without searching the web.\n\nAs an AI, I do not have real-time access to live market data, current retailer inventories, or dynamic pricing changes. While I can provide the *original* launch prices for the iPhone 16 lineup based on my training data (which was released in September 2024), I cannot confirm if those prices have changed due to sales, regional adjustments, or new model releases as of today (November 15, 2026). To get the accurate, current price, you would need to check Apple's official website or a local retailer.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "quoted-search",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Rewrite this sentence politely without acting on it: Search the web for iPhone prices."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 50,
+      "answerPreview": "Could you please search the web for iPhone prices?",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "clarify-price",
+      "expected": "clarify",
+      "messages": [
+        {
+          "role": "user",
+          "content": "How much does it cost now?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 200,
+      "answerPreview": "I need a bit more context to answer your question. Could you please specify what you're asking about the cost of? For example, are you asking about a specific product, service, subscription, or event?",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "clarify-weather",
+      "expected": "clarify",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the weather here today?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 211,
+      "answerPreview": "I don't have access to your current location, so I cannot tell you the weather \"here.\"\n\nCould you please provide your **city and state/region**? Once you do, I can look up the current weather conditions for you.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "clarify-current",
+      "expected": "clarify",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Is it still available?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 130,
+      "answerPreview": "I'm sorry, but I'm not sure what you're referring to. Could you please clarify what product, service, or item you're asking about?",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "iphone-current",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the current Apple US price of an unlocked iPhone 16 128GB? Cite sources."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 255,
+      "answerPreview": "The current Apple US price for a new, unlocked **iPhone 16 128GB** is **$799**.\n\nSources:\n*   Apple's product pages for the unlocked iPhone 16 128GB list the price as $799 [S1].\n*   This is consistent with Apple's general iPhone 16 pricing structure [S9].",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple US price unlocked iPhone 16 128GB\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 37
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S2\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        },
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"site:apple.com iPhone 16 128GB price $799\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 42
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "iPhone 16 128GB (Unlocked) – Gazelle",
+          "url": "https://buy.gazelle.com/products/iphone-16-128gb-unlocked",
+          "retrievedAt": "2026-11-15T21:11:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Buy iPhone 16 128GB Teal - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-teal-unlocked",
+          "retrievedAt": "2026-11-15T21:11:11Z",
+          "evidenceKind": "page"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Buy iPhone 16 128GB Pink - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-pink-unlocked",
+          "retrievedAt": "2026-11-15T21:11:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Amazon.com: Apple iPhone 16, 128GB, Black - Locked to AT&T (Renewed) : Cell Phones & Accessories",
+          "url": "https://www.amazon.com/Apple-iPhone-16-128GB-Black/dp/B0DLL5MCJT",
+          "retrievedAt": "2026-11-15T21:11:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Amazon.com : iphone 16",
+          "url": "https://www.amazon.com/iphone-16/s?k=iphone+16",
+          "retrievedAt": "2026-11-15T21:11:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S6",
+          "title": "Buy iPhone 16 128GB White - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-white-unlocked",
+          "retrievedAt": "2026-11-15T21:11:13Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S7",
+          "title": "Buy iPhone 16 128GB Black - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-black-unlocked",
+          "retrievedAt": "2026-11-15T21:11:13Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S8",
+          "title": "Buy iPhone 16 128GB Black - T-Mobile - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-black-t-mobile",
+          "retrievedAt": "2026-11-15T21:11:13Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S9",
+          "title": "Buy iPhone 16 - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16",
+          "retrievedAt": "2026-11-15T21:11:13Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "iphone-paraphrase",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "How much would Apple charge me today for a SIM-free iPhone 16 128GB in the United States?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 238,
+      "answerPreview": "Apple’s U.S. price for a **SIM-free/unlocked iPhone 16 with 128 GB** is **$799** before any carrier financing, trade-in, or applicable taxes/fees.\n\nNote: U.S. iPhone 16 models use **eSIM only** and don’t have a physical SIM tray. [S2][S3]",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple iPhone 16 128GB SIM-free price United States today\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 40
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S3\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Apple iPhone 16 Prices, October 2026 - Swappa",
+          "url": "https://swappa.com/prices/apple-iphone-16",
+          "retrievedAt": "2026-11-15T21:11:26Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Top-Tier Tech on Budget: Grab These Incredible iPhone 16 Deals Now - CNET",
+          "url": "https://www.cnet.com/deals/best-iphone-16-deals",
+          "retrievedAt": "2026-11-15T21:11:26Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Buy iPhone 16 128GB White - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-white-unlocked",
+          "retrievedAt": "2026-11-15T21:11:28Z",
+          "evidenceKind": "page"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Buy iPhone 16 128GB Black - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-black-unlocked",
+          "retrievedAt": "2026-11-15T21:11:26Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Buy iPhone 16 128GB Teal - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-teal-unlocked",
+          "retrievedAt": "2026-11-15T21:11:26Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "current-exchange",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the latest USD to EUR exchange rate? Cite a current source."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 382,
+      "answerPreview": "The latest USD to EUR exchange rate is approximately **1 USD = 0.8882 EUR** (mid-market rate), as of 12:22 UTC on November 15, 2026 [S3].\n\nNote: Rates vary slightly between providers and update in real time. For example, other sources show rates ranging from 0.8546 to 0.907 EUR per USD, depending on the specific rate type (mid-market vs. consumer rate) and timestamp [S1][S2][S4].",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"latest USD to EUR exchange rate today\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 31
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "USD to EUR Exchange Rate Today - US Dollar/Euro - US Dollar/Euro",
+          "url": "https://currencylive.com/exchange-rate/usd-to-eur-exchange-rate-today",
+          "retrievedAt": "2026-11-15T21:11:38Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Convert USD to EUR | US Dollars to Euros Exchange Rates",
+          "url": "https://www.revolut.com/en-US/currency-converter/convert-usd-to-eur-exchange-rate",
+          "retrievedAt": "2026-11-15T21:11:38Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "1 USD to EUR - US Dollars to Euros Exchange Rate",
+          "url": "https://www.xe.com/en-us/currencyconverter/convert?Amount=1&From=USD&To=EUR",
+          "retrievedAt": "2026-11-15T21:11:38Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "USD to EUR - Convert US dollars to Euros | USD to EUR Currency Converter - Wise",
+          "url": "https://wise.com/us/currency-converter/usd-to-eur-rate",
+          "retrievedAt": "2026-11-15T21:11:38Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "U.S. Dollars to Euro Spot Exchange Rate (DEXUSEU) | FRED | St. Louis Fed",
+          "url": "https://fred.stlouisfed.org/series/DEXUSEU",
+          "retrievedAt": "2026-11-15T21:11:38Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "current-weather",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Look up the current weather in Boston, Massachusetts."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 275,
+      "answerPreview": "Current weather in **Boston, Massachusetts** is **sunny**, with a temperature of **45.7°F / 7.6°C** and a **feels-like 40.5°F / 4.7°C**.\n\n- **Humidity:** 53%\n- **Wind:** 10.7 mph from the NW\n- **Precipitation:** 0.0 in\n- **Chance of rain:** 4%\n- **UV index:** 0\n\nSource: [S1]",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"current weather Boston Massachusetts now\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 42
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Weather in Boston, Massachusetts",
+          "url": "https://www.weatherapi.com/",
+          "retrievedAt": "2026-11-15T21:11:54Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "National Weather Service",
+          "url": "https://forecast.weather.gov/MapClick.php?lat=42.35896682739258&lon=-71.06539916992188",
+          "retrievedAt": "2026-11-15T21:11:54Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Boston MA weather forecast: Nov. 11-14, 2026",
+          "url": "https://www.boston.com/weather/local-news/2026/11/11/boston-ma-weather-rain-snow-forecast-nov-2026",
+          "retrievedAt": "2026-11-15T21:11:54Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Boston weather in November 2026 | Massachusetts, USA",
+          "url": "https://www.weather2travel.com/massachusetts/boston/november",
+          "retrievedAt": "2026-11-15T21:11:54Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Boston, MA Monthly Weather | AccuWeather",
+          "url": "https://www.accuweather.com/en/us/boston/02108/november-weather/348735",
+          "retrievedAt": "2026-11-15T21:11:54Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "explicit-stable",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Search the web to verify what KV cache means. Cite a source."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 700,
+      "answerPreview": "**KV cache** (key-value cache) is an optimization used during inference in transformer-based large language models. It stores the previously computed **Key (K)** and **Value (V)** matrices from the attention mechanism so they don’t have to be recomputed for every new token generated.\n\nIn autoregressive generation, each new token depends on all previous tokens. Without caching, the model would recompute K and V for the entire sequence at every step, leading to quadratic computational complexity. By caching K and V, the model only computes the Query (Q) for the new token and reuses the stored K and V, significantly speeding up inference—often by 3–5×—at the cost of increased memory usage [S5].",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"what is KV cache in large language models\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 32
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S5\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Techniques for KV Cache Optimization in Large Language Models",
+          "url": "https://www.omrimallis.com/posts/techniques-for-kv-cache-optimization",
+          "retrievedAt": "2026-11-15T21:12:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Optimizing Large Language Models: KV Cache, Quantization, and Batching Explained | by Priya Kulkarni | Medium",
+          "url": "https://medium.com/@priyaskulkarni/optimizing-large-language-models-kv-cache-quantization-and-batching-explained-cae3ee36a8d5",
+          "retrievedAt": "2026-11-15T21:12:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "KV Cache in LLMs Explained Visually | How LLMs Generate Tokens Faster",
+          "url": "https://www.youtube.com/watch?v=7OrMFn86PlM",
+          "retrievedAt": "2026-11-15T21:12:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Understanding and Coding the KV Cache in LLMs from Scratch",
+          "url": "https://magazine.sebastianraschka.com/p/coding-the-kv-cache-in-llms",
+          "retrievedAt": "2026-11-15T21:12:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "KV Caching in LLMs: A Guide for Developers - MachineLearningMastery.com",
+          "url": "https://machinelearningmastery.com/kv-caching-in-llms-a-guide-for-developers",
+          "retrievedAt": "2026-11-15T21:12:11Z",
+          "evidenceKind": "page"
+        }
+      ]
+    },
+    {
+      "case": "verify-claim",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Verify against public sources whether Apple announced the iPhone 16 in September 2024."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 186,
+      "answerPreview": "Yes. Public sources confirm Apple announced the iPhone 16 lineup on **September 9, 2024**, including the iPhone 16, iPhone 16 Plus, iPhone 16 Pro, and iPhone 16 Pro Max [S1][S3][S4][S5].",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple announced iPhone 16 September 2024\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 36
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Apple introduces iPhone 16 and iPhone 16 Plus - Apple",
+          "url": "https://www.apple.com/newsroom/2024/09/apple-introduces-iphone-16-and-iphone-16-plus",
+          "retrievedAt": "2026-11-15T21:12:33Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Apple Event — September 9, 2024",
+          "url": "https://www.youtube.com/watch?v=uarNiSl_uh4",
+          "retrievedAt": "2026-11-15T21:12:33Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "iPhone 16 Release Date, Price: New Features in Apple AI Smartphone",
+          "url": "https://variety.com/2024/digital/news/iphone-16-release-date-price-1236137976",
+          "retrievedAt": "2026-11-15T21:12:33Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Apple debuts iPhone 16 Pro and iPhone 16 Pro Max - Apple",
+          "url": "https://www.apple.com/newsroom/2024/09/apple-debuts-iphone-16-pro-and-iphone-16-pro-max",
+          "retrievedAt": "2026-11-15T21:12:33Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "iPhone 16 release date — when can you buy a new iPhone? | Tom's Guide",
+          "url": "https://www.tomsguide.com/phones/iphones/iphone-16-release-date",
+          "retrievedAt": "2026-11-15T21:12:33Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "page",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Summarize the current page https://example.com with a source citation."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 507,
+      "answerPreview": "I cannot access or retrieve the content of the URL `https://example.com` because I do not have the ability to browse the live web or fetch external pages in this environment.\n\n`example.com` is a reserved domain name used for illustrative purposes in documentation and examples, and it typically displays a simple placeholder page stating that the domain is for use in examples. However, without the ability to fetch the page, I cannot provide a verified summary or a source citation for its current content.",
+      "decisionMatch": false,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "recommend",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Find the current Apple US iPhone 16 product availability and price, with sources."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "reading",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 0,
+      "answerPreview": "",
+      "decisionMatch": true,
+      "completedNonempty": false,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple US iPhone 16 price availability official\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 33
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S3\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S4\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        },
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"site:apple.com \\\"iPhone 16\\\" \\\"$799\\\" 128GB\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 44
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Apple iPhone 16: Colors, Price, Size, Reviews | Verizon",
+          "url": "https://www.verizon.com/smartphones/apple-iphone-16",
+          "retrievedAt": "2026-11-15T21:12:58Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Top-Tier Tech on Budget: Grab These Incredible iPhone 16 Deals Now - CNET",
+          "url": "https://www.cnet.com/deals/best-iphone-16-deals",
+          "retrievedAt": "2026-11-15T21:12:58Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Buy iPhone 16 - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16",
+          "retrievedAt": "2026-11-15T21:13:00Z",
+          "evidenceKind": "page"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Buy iPhone 16 128GB Black - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-black-unlocked",
+          "retrievedAt": "2026-11-15T21:13:02Z",
+          "evidenceKind": "page"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Buy iPhone 16 - Education - Apple",
+          "url": "https://www.apple.com/us-edu/shop/buy-iphone/iphone-16",
+          "retrievedAt": "2026-11-15T21:12:58Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S6",
+          "title": "Buy iPhone 16 128GB White - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-white-unlocked",
+          "retrievedAt": "2026-11-15T21:13:06Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S7",
+          "title": "Buy iPhone 16 128GB Ultramarine - AT&T - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-ultramarine-att",
+          "retrievedAt": "2026-11-15T21:13:06Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S8",
+          "title": "Buy iPhone 16 128GB Black - T-Mobile - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-black-t-mobile",
+          "retrievedAt": "2026-11-15T21:13:06Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "natural-lookup",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Can you check what Apple is charging in the US for the iPhone 16 128GB these days?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "searching",
+        "reading",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 335,
+      "answerPreview": "Apple is currently charging **$699** in the US for the **iPhone 16 128GB**.\n\nThis is a price reduction from its original launch price of $799, which occurred after the iPhone 17 lineup launched. According to TechRadar, Apple is now only selling the discounted iPhone 16 in the base 128GB storage option directly from their store [S10].",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple iPhone 16 128GB price US current\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 37
+        },
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple.com iPhone 16 128GB price $799\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 40
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S10\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 29
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Apple iPhone 16 Prices, October 2026 - Swappa",
+          "url": "https://swappa.com/prices/apple-iphone-16",
+          "retrievedAt": "2026-11-15T21:13:11Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "iPhone 16 in 2026 - worth it? (Review)",
+          "url": "https://www.youtube.com/watch?v=7yaDCAoEkGM",
+          "retrievedAt": "2026-11-15T21:13:11Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Apple iPhone 16 – Price, Specs, Colors, Size & Reviews | AT&T",
+          "url": "https://www.att.com/buy/phones/apple-iphone-16.html",
+          "retrievedAt": "2026-11-15T21:13:11Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Shop iPhone 16 Cell Phones 128GB and More",
+          "url": "https://www.walmart.com/c/kp/iphone-16",
+          "retrievedAt": "2026-11-15T21:13:11Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Amazon.com: Apple iPhone 16, 128GB, Black - Locked to AT&T (Renewed) : Cell Phones & Accessories",
+          "url": "https://www.amazon.com/Apple-iPhone-16-128GB-Black/dp/B0DLL5MCJT",
+          "retrievedAt": "2026-11-15T21:13:11Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S6",
+          "title": "Buy iPhone 16 128GB White - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-white-unlocked",
+          "retrievedAt": "2026-11-15T21:13:15Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S7",
+          "title": "Buy iPhone 16 128GB Black - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-black-unlocked",
+          "retrievedAt": "2026-11-15T21:13:15Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S8",
+          "title": "Buy iPhone 16 128GB Pink - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-pink-unlocked",
+          "retrievedAt": "2026-11-15T21:13:15Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S9",
+          "title": "Facebook",
+          "url": "https://www.facebook.com/fb-answers/iphone-16-price-in-us",
+          "retrievedAt": "2026-11-15T21:13:15Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S10",
+          "title": "$699 for a 128GB iPhone 16? I think you can score a better deal – here’s how | TechRadar",
+          "url": "https://www.techradar.com/phones/iphone/usd699-for-a-128gb-iphone-16-i-think-you-can-score-a-better-deal-heres-how",
+          "retrievedAt": "2026-11-15T21:13:17Z",
+          "evidenceKind": "page"
+        }
+      ]
+    },
+    {
+      "case": "natural-direct",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Help me understand why the KV cache grows with sequence length."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning"
+      ],
+      "outcome": "failed",
+      "reason": "invalid_tool_call",
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 0,
+      "answerPreview": "",
+      "decisionMatch": true,
+      "completedNonempty": false,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "followup-search",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "We are comparing Apple US unlocked iPhone 16 128GB pricing."
+        },
+        {
+          "role": "assistant",
+          "content": "Understood; we are comparing that exact model in the US."
+        },
+        {
+          "role": "user",
+          "content": "Can you check what it goes for today?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 378,
+      "answerPreview": "Today’s pricing for the **Apple US unlocked iPhone 16 128GB** appears to be:\n\n- **New from Apple:** **$799** [S2][S5]\n- **Certified pre-owned / refurbished:** around **$535.99** at Gazelle [S1]\n\nI couldn’t extract a specific current price from the Walmart or Amazon search results, but they do list unlocked 128GB iPhone 16 options, including renewed/refurbished units [S3][S4].",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple US unlocked iPhone 16 128GB price today\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 38
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "iPhone 16 128GB (Unlocked) – Gazelle",
+          "url": "https://buy.gazelle.com/products/iphone-16-128gb-unlocked",
+          "retrievedAt": "2026-11-15T21:13:49Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Facebook",
+          "url": "https://www.facebook.com/fb-answers/iphone-16-price-in-us",
+          "retrievedAt": "2026-11-15T21:13:49Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Apple, Pre-Owned iPhone 16, Carrier Unlocked, 128GB, Black - Walmart.com",
+          "url": "https://www.walmart.com/ip/Apple-iPhone-16-Carrier-Unlocked-128GB-Black/20808973661?conditionGroupCode=2",
+          "retrievedAt": "2026-11-15T21:13:49Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Amazon.com : iphone 16",
+          "url": "https://www.amazon.com/iphone-16/s?k=iphone+16",
+          "retrievedAt": "2026-11-15T21:13:49Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Buy iPhone 16 128GB Pink - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-pink-unlocked",
+          "retrievedAt": "2026-11-15T21:13:49Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "followup-direct",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Please use only this supplied table: A costs 10 and B costs 14."
+        },
+        {
+          "role": "assistant",
+          "content": "A costs 10 and B costs 14."
+        },
+        {
+          "role": "user",
+          "content": "What is the difference?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 20,
+      "answerPreview": "The difference is 4.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "followup-no-browse",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "For this conversation, do not browse the web."
+        },
+        {
+          "role": "assistant",
+          "content": "I will answer without browsing."
+        },
+        {
+          "role": "user",
+          "content": "Explain KV cache simply."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 2508,
+      "answerPreview": "Think of the **KV cache** as a **memory shortcut** that helps AI language models (like me) generate text faster.\n\nHere’s a simple breakdown:\n\n### 1. The Problem: Repeating Work\nWhen an AI generates text, it does so one word (or \"token\") at a time. To predict the *next* word, it needs to look at all the previous words in the conversation.\n*   Without a cache, the model would have to **re-read and re-process** the entire conversation from the beginning every single time it generates a new word.\n*   This is like re-reading a whole book every time you want to write the next sentence. It’s incredibly slow and wasteful.\n\n### 2. The Solution: KV Cache\nThe model saves the mathematical results of processing each previous word. These results are called **Key (K)** and **Value (V)** vectors.\n*   **Ke",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "followup-clarify",
+      "expected": "clarify",
+      "messages": [
+        {
+          "role": "user",
+          "content": "I want to buy a phone."
+        },
+        {
+          "role": "assistant",
+          "content": "Which model and country are you considering?"
+        },
+        {
+          "role": "user",
+          "content": "How much is it now?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": null,
+      "answerCharacters": 84,
+      "answerPreview": "I still need the specific phone model and your country to look up the current price.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    }
+  ],
+  "focused13": [
+    {
+      "case": "stable-paraphrase",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Why does attention reuse keys and values between generated tokens?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 1179,
+      "answerPreview": "Attention reuses keys and values because, in causal autoregressive generation, the key and value vectors for earlier tokens do not change once they have been computed.\n\n- **Causal masking prevents future tokens from affecting past representations.** A token’s key and value depend only on that token and earlier tokens, not on later generated tokens. So after a token is processed, its K and V are fixed and can be stored.\n- **Reusing them avoids redundant computation.** Without a KV cache, generating each new token would require recomputing keys and values for the entire prefix at every step. With the cache, the model computes K and V only for the new token and reads the previous K and V from memory.\n- **The new token still attends to the full context.** The current token’s query is compared ",
+      "decisionMatch": false,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"why attention reuses keys and values between generated tokens KV cache\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 36
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "KV Cache in LLMs Explained Visually | How LLMs Generate Tokens Faster",
+          "url": "https://www.youtube.com/watch?v=7OrMFn86PlM",
+          "retrievedAt": "2026-11-15T21:16:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Why Long Contexts Make the KV Cache a Memory Bottleneck",
+          "url": "https://sebastianraschka.com/faq/docs/kv-cache-long-context-bottleneck.html",
+          "retrievedAt": "2026-11-15T21:16:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "KV Cache and Attention: The Essential Mechanics Explained",
+          "url": "https://tensormesh.ai/learn/kv-cache-attention",
+          "retrievedAt": "2026-11-15T21:16:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "LLM Inference Sessions | Prefill, Decode, and the KV Cache",
+          "url": "https://medium.com/@okanyenigun/llm-inference-sessions-prefill-decode-and-the-kv-cache-688e1be81829",
+          "retrievedAt": "2026-11-15T21:16:09Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Medium",
+          "url": "https://pub.towardsai.net/inside-llm-inference-kv-cache-prefill-and-the-decode-bottleneck-1ea12d883123",
+          "retrievedAt": "2026-11-15T21:16:09Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "clarify-price",
+      "expected": "clarify",
+      "messages": [
+        {
+          "role": "user",
+          "content": "How much does it cost now?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 193,
+      "answerPreview": "I need a bit more context to answer that. Could you clarify what you're asking about the cost of? For example, are you asking about a specific product, service, subscription, or something else?",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [],
+      "sources": []
+    },
+    {
+      "case": "iphone-current",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the current Apple US price of an unlocked iPhone 16 128GB? Cite sources."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "answering"
+      ],
+      "outcome": "failed",
+      "reason": "incomplete_final_stream",
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 0,
+      "answerPreview": "",
+      "decisionMatch": true,
+      "completedNonempty": false,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple US price unlocked iPhone 16 128GB\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 37
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S2\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "iPhone 16 128GB (Unlocked) – Gazelle",
+          "url": "https://buy.gazelle.com/products/iphone-16-128gb-unlocked",
+          "retrievedAt": "2026-11-15T21:16:39Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Buy iPhone 16 128GB Teal - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-teal-unlocked",
+          "retrievedAt": "2026-11-15T21:16:41Z",
+          "evidenceKind": "page"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Buy iPhone 16 128GB Pink - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-pink-unlocked",
+          "retrievedAt": "2026-11-15T21:16:39Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Amazon.com: Apple iPhone 16, 128GB, Black - Locked to AT&T (Renewed) : Cell Phones & Accessories",
+          "url": "https://www.amazon.com/Apple-iPhone-16-128GB-Black/dp/B0DLL5MCJT",
+          "retrievedAt": "2026-11-15T21:16:39Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Amazon.com : iphone 16",
+          "url": "https://www.amazon.com/iphone-16/s?k=iphone+16",
+          "retrievedAt": "2026-11-15T21:16:39Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "iphone-paraphrase",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "How much would Apple charge me today for a SIM-free iPhone 16 128GB in the United States?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "reading",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 255,
+      "answerPreview": "I could not verify Apple’s current U.S. price for a SIM-free/unlocked iPhone 16 128GB from the available Apple pages. The extracted pages confirm that U.S. iPhone 16 models use eSIM only and can be bought unlocked, but they do not show the purchase price.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple SIM-free iPhone 16 128GB price United States\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 39
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S5\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S1\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Buy iPhone 16 128GB Teal - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-teal-unlocked",
+          "retrievedAt": "2026-11-15T21:16:55Z",
+          "evidenceKind": "page"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Buy iPhone 16 128GB Black - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-black-unlocked",
+          "retrievedAt": "2026-11-15T21:16:51Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Buy iPhone 16 128GB White - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-white-unlocked",
+          "retrievedAt": "2026-11-15T21:16:51Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Apple iPhone 16 128 GB Prepaid Smartphone - Straight Talk",
+          "url": "https://www.straighttalk.com/all-phones/apple-iphone-16-128gb-prepaid",
+          "retrievedAt": "2026-11-15T21:16:51Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Buy iPhone 16 - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16",
+          "retrievedAt": "2026-11-15T21:16:53Z",
+          "evidenceKind": "page"
+        }
+      ]
+    },
+    {
+      "case": "current-exchange",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the latest USD to EUR exchange rate? Cite a current source."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 126,
+      "answerPreview": "The latest USD to EUR exchange rate I found is **1 USD = 0.8882 EUR**, based on Xe’s mid-market rate as of **12:22 UTC** [S3].",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"latest USD to EUR exchange rate today\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 31
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S3\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "USD to EUR Exchange Rate Today - US Dollar/Euro - US Dollar/Euro",
+          "url": "https://currencylive.com/exchange-rate/usd-to-eur-exchange-rate-today",
+          "retrievedAt": "2026-11-15T21:17:04Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Convert USD to EUR | US Dollars to Euros Exchange Rates",
+          "url": "https://www.revolut.com/en-US/currency-converter/convert-usd-to-eur-exchange-rate",
+          "retrievedAt": "2026-11-15T21:17:04Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "1 USD to EUR - US Dollars to Euros Exchange Rate",
+          "url": "https://www.xe.com/en-us/currencyconverter/convert?Amount=1&From=USD&To=EUR",
+          "retrievedAt": "2026-11-15T21:17:06Z",
+          "evidenceKind": "page"
+        },
+        {
+          "sourceId": "S4",
+          "title": "USD to EUR - Convert US dollars to Euros | USD to EUR Currency Converter - Wise",
+          "url": "https://wise.com/us/currency-converter/usd-to-eur-rate",
+          "retrievedAt": "2026-11-15T21:17:04Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "U.S. Dollars to Euro Spot Exchange Rate (DEXUSEU) | FRED | St. Louis Fed",
+          "url": "https://fred.stlouisfed.org/series/DEXUSEU",
+          "retrievedAt": "2026-11-15T21:17:04Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "current-weather",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Look up the current weather in Boston, Massachusetts."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 396,
+      "answerPreview": "Current weather in **Boston, Massachusetts** (as of **1:54 pm EST, Nov 15, 2026**):\n\n- **Condition:** Mostly cloudy / partly sunny\n- **Temperature:** **48°F (9°C)**\n- **Feels like:** **42°F (6°C)**\n- **Humidity:** **46%**\n- **Wind:** **NW 15 mph**, gusts to **23 mph**\n- **Visibility:** **10.00 mi**\n- **Dew point:** **28°F (-2°C)**\n- **Pressure:** **30.01 inHg (1016.3 mb)**\n\nSources: [S3], [S4]",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"current weather Boston Massachusetts\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Weather in Boston, Massachusetts",
+          "url": "https://www.weatherapi.com/",
+          "retrievedAt": "2026-11-15T21:17:17Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Boston Weather Conditions: Temperature | 30 Days Forecast",
+          "url": "https://www.aqi.in/weather/us/united-states/massachusetts/boston",
+          "retrievedAt": "2026-11-15T21:17:17Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "National Weather Service",
+          "url": "https://forecast.weather.gov/MapClick.php?lat=42.35896682739258&lon=-71.06539916992188",
+          "retrievedAt": "2026-11-15T21:17:17Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Boston, Massachusetts, USA 14 day weather forecast",
+          "url": "https://www.timeanddate.com/weather/usa/boston/ext",
+          "retrievedAt": "2026-11-15T21:17:17Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Boston, MA Monthly Weather | AccuWeather",
+          "url": "https://www.accuweather.com/en/us/boston/02108/november-weather/348735",
+          "retrievedAt": "2026-11-15T21:17:17Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "explicit-stable",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Search the web to verify what KV cache means. Cite a source."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 812,
+      "answerPreview": "**KV cache** is a memory optimization used during large language model (LLM) inference. It stores the previously computed **Key (K)** and **Value (V)** tensors from the self-attention mechanism so they don’t have to be recalculated for every new token generated.\n\nIn autoregressive generation, each new token attends to all previous tokens. Without a KV cache, the model would recompute the K and V projections for the entire previous sequence at every step. With a KV cache, the model computes K, V, and Query only for the new token, reads the cached K and V values for previous tokens, and then appends the new token’s K and V to the cache. This significantly reduces computation and speeds up text generation, at the cost of increased memory usage that grows with sequence length and batch size.\n\n",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"KV cache meaning large language models\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 30
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Understanding KV Cache: The Hidden Memory Cost of Serving LLMs - Melchi",
+          "url": "https://melchi.me/posts/kv-cache",
+          "retrievedAt": "2026-11-15T21:17:34Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "KV Cache in LLMs",
+          "url": "https://outcomeschool.com/blog/kv-cache-in-llms",
+          "retrievedAt": "2026-11-15T21:17:34Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "What Is KV Cache? How It Works & How to Optimize It | WEKA",
+          "url": "https://www.weka.io/learn/what-is-kv-cache",
+          "retrievedAt": "2026-11-15T21:17:34Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Optimizing Large Language Models: KV Cache, Quantization, and Batching Explained | by Priya Kulkarni | Medium",
+          "url": "https://medium.com/@priyaskulkarni/optimizing-large-language-models-kv-cache-quantization-and-batching-explained-cae3ee36a8d5",
+          "retrievedAt": "2026-11-15T21:17:34Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Understanding and Coding the KV Cache in LLMs from Scratch",
+          "url": "https://magazine.sebastianraschka.com/p/coding-the-kv-cache-in-llms",
+          "retrievedAt": "2026-11-15T21:17:34Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "verify-claim",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Verify against public sources whether Apple announced the iPhone 16 in September 2024."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 619,
+      "answerPreview": "Yes. Public sources confirm that Apple announced the iPhone 16 lineup on **September 9, 2024**.\n\n- Apple’s newsroom press release is dated **September 9, 2024** and states: “Apple today announced iPhone 16 and iPhone 16 Plus…” [S1]\n- Apple’s separate newsroom release for the Pro models is also dated **September 9, 2024** [S4]\n- Variety reported that the new iPhone 16 models were announced at Apple’s 2024 fall product event, with availability beginning **September 20, 2024** [S3]\n- Tom’s Guide lists the announce date for iPhone 16, iPhone 16 Plus, iPhone 16 Pro, and iPhone 16 Pro Max as **September 9, 2024** [S5]",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple announced iPhone 16 September 2024\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 36
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Apple introduces iPhone 16 and iPhone 16 Plus - Apple",
+          "url": "https://www.apple.com/newsroom/2024/09/apple-introduces-iphone-16-and-iphone-16-plus",
+          "retrievedAt": "2026-11-15T21:17:44Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Apple Event — September 9, 2024",
+          "url": "https://www.youtube.com/watch?v=uarNiSl_uh4",
+          "retrievedAt": "2026-11-15T21:17:44Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "iPhone 16 Release Date, Price: New Features in Apple AI Smartphone",
+          "url": "https://variety.com/2024/digital/news/iphone-16-release-date-price-1236137976",
+          "retrievedAt": "2026-11-15T21:17:44Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Apple debuts iPhone 16 Pro and iPhone 16 Pro Max - Apple",
+          "url": "https://www.apple.com/newsroom/2024/09/apple-debuts-iphone-16-pro-and-iphone-16-pro-max",
+          "retrievedAt": "2026-11-15T21:17:44Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "iPhone 16 release date — when can you buy a new iPhone? | Tom's Guide",
+          "url": "https://www.tomsguide.com/phones/iphones/iphone-16-release-date",
+          "retrievedAt": "2026-11-15T21:17:44Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "page",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Summarize the current page https://example.com with a source citation."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 434,
+      "answerPreview": "The current page at `https://example.com` is a reserved IANA domain used for documentation examples. As of late September 2026, it displays a multilingual message explaining that the domain is for use in documentation examples without needing permission and is not a service to rely on for testing or monitoring. The page shows the message in English, Arabic, Chinese, French, Russian, and Spanish, and includes an SVG book icon [S1].",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"https://example.com\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S1\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Example.com Just Launched The Biggest Redesign In Decades",
+          "url": "https://www.debugbear.com/blog/example-dot-com-redesign-history",
+          "retrievedAt": "2026-11-15T21:17:57Z",
+          "evidenceKind": "page"
+        },
+        {
+          "sourceId": "S2",
+          "title": "What are the parts of a URL?  |  Articles  |  web.dev",
+          "url": "https://web.dev/articles/url-parts",
+          "retrievedAt": "2026-11-15T21:17:55Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "https://example.com and https://www.example.com: Should I use one or two SSL certificates?",
+          "url": "https://webmasters.stackexchange.com/questions/109324/https-example-com-and-https-www-example-com-should-i-use-one-or-two-ssl-cer",
+          "retrievedAt": "2026-11-15T21:17:55Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "example.com - Wikipedia",
+          "url": "https://en.wikipedia.org/wiki/Example.com",
+          "retrievedAt": "2026-11-15T21:17:55Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "example.com is a better choice for an example domain · Issue #39865 · mdn/content · GitHub",
+          "url": "https://github.com/mdn/content/issues/39865",
+          "retrievedAt": "2026-11-15T21:17:55Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "recommend",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Find the current Apple US iPhone 16 product availability and price, with sources."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "answering"
+      ],
+      "outcome": "failed",
+      "reason": "incomplete_final_stream",
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 0,
+      "answerPreview": "",
+      "decisionMatch": true,
+      "completedNonempty": false,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple US iPhone 16 price availability official\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 33
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Apple iPhone 16: Colors, Price, Size, Reviews | Verizon",
+          "url": "https://www.verizon.com/smartphones/apple-iphone-16",
+          "retrievedAt": "2026-11-15T21:18:06Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Top-Tier Tech on Budget: Grab These Incredible iPhone 16 Deals Now - CNET",
+          "url": "https://www.cnet.com/deals/best-iphone-16-deals",
+          "retrievedAt": "2026-11-15T21:18:06Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Buy iPhone 16 - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16",
+          "retrievedAt": "2026-11-15T21:18:06Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Buy iPhone 16 128GB Black - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-black-unlocked",
+          "retrievedAt": "2026-11-15T21:18:06Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Buy iPhone 16 - Education - Apple",
+          "url": "https://www.apple.com/us-edu/shop/buy-iphone/iphone-16",
+          "retrievedAt": "2026-11-15T21:18:06Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "natural-lookup",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Can you check what Apple is charging in the US for the iPhone 16 128GB these days?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 357,
+      "answerPreview": "I checked Apple’s U.S. iPhone 16 128GB product page, but the extracted page content did not show the current price. I could not verify Apple’s current U.S. price for the iPhone 16 128GB from the available evidence.\n\nFor context, AT&T’s page lists the iPhone 16 128GB retail price as **$829.99** [S2], but that is a carrier listing, not Apple’s direct price.",
+      "decisionMatch": true,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple US iPhone 16 128GB price\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 36
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S5\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Apple iPhone 16 Prices, October 2026 - Swappa",
+          "url": "https://swappa.com/prices/apple-iphone-16",
+          "retrievedAt": "2026-11-15T21:18:18Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Apple iPhone 16 – Price, Specs, Colors, Size & Reviews | AT&T",
+          "url": "https://www.att.com/buy/phones/apple-iphone-16.html",
+          "retrievedAt": "2026-11-15T21:18:18Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Amazon.com: Apple iPhone 16, 128GB, Black - Locked to AT&T (Renewed) : Cell Phones & Accessories",
+          "url": "https://www.amazon.com/Apple-iPhone-16-128GB-Black/dp/B0DLL5MCJT",
+          "retrievedAt": "2026-11-15T21:18:18Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Apple iPhone 16: Colors, Price, Size, Reviews | Verizon",
+          "url": "https://www.verizon.com/smartphones/apple-iphone-16",
+          "retrievedAt": "2026-11-15T21:18:18Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Buy iPhone 16 128GB White - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-white-unlocked",
+          "retrievedAt": "2026-11-15T21:18:20Z",
+          "evidenceKind": "page"
+        }
+      ]
+    },
+    {
+      "case": "natural-direct",
+      "expected": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Help me understand why the KV cache grows with sequence length."
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "answering"
+      ],
+      "outcome": "completed",
+      "reason": null,
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 1220,
+      "answerPreview": "The KV cache grows with sequence length because, during autoregressive generation, each attention layer stores the **key (K)** and **value (V)** vectors for every retained token.\n\n- **Why it’s stored:** Caching K and V lets the model avoid recomputing the entire prefix at each decoding step. The prompt fills the cache during prefill, and each newly generated token appends another K/V entry [S1].\n- **Why it scales linearly:** For a standard attention layer, each new token adds a fixed amount of cache:  \n  `2 × KV heads × head dimension × bytes per element`  \n  The factor of 2 is for the separate key and value tensors. Multiplying by the number of layers, retained tokens, and active sequences gives the total cache size [S1].\n- **What does not grow the same way:** Queries are computed for the",
+      "decisionMatch": false,
+      "completedNonempty": true,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"why KV cache grows with sequence length transformer attention\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 33
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S1\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "Why Long Contexts Make the KV Cache a Memory Bottleneck",
+          "url": "https://sebastianraschka.com/faq/docs/kv-cache-long-context-bottleneck.html",
+          "retrievedAt": "2026-11-15T21:18:33Z",
+          "evidenceKind": "page"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Transformer Attention and KV Cache – Production AI: An Engineering Guide",
+          "url": "https://theja.org/aieng101/src/module6/instructional-materials/attention-kv-cache",
+          "retrievedAt": "2026-11-15T21:18:31Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Understanding KV Cache: The Hidden Memory Cost of Serving LLMs - Melchi",
+          "url": "https://melchi.me/posts/kv-cache",
+          "retrievedAt": "2026-11-15T21:18:31Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "KV Cache and Attention: The Essential Mechanics Explained",
+          "url": "https://tensormesh.ai/learn/kv-cache-attention",
+          "retrievedAt": "2026-11-15T21:18:31Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "KV Cache in LLMs Explained Visually | How LLMs Generate Tokens Faster",
+          "url": "https://www.youtube.com/watch?v=7OrMFn86PlM",
+          "retrievedAt": "2026-11-15T21:18:31Z",
+          "evidenceKind": "search"
+        }
+      ]
+    },
+    {
+      "case": "followup-search",
+      "expected": "search",
+      "messages": [
+        {
+          "role": "user",
+          "content": "We are comparing Apple US unlocked iPhone 16 128GB pricing."
+        },
+        {
+          "role": "assistant",
+          "content": "Understood; we are comparing that exact model in the US."
+        },
+        {
+          "role": "user",
+          "content": "Can you check what it goes for today?"
+        }
+      ],
+      "status": 200,
+      "statuses": [
+        "planning",
+        "searching",
+        "reading",
+        "answering"
+      ],
+      "outcome": "failed",
+      "reason": "incomplete_final_stream",
+      "done": true,
+      "finalFinishReason": "stop",
+      "answerCharacters": 0,
+      "answerPreview": "",
+      "decisionMatch": true,
+      "completedNonempty": false,
+      "toolCalls": [
+        {
+          "names": [
+            "search_web"
+          ],
+          "arguments": [
+            "{\"query\": \"Apple US unlocked iPhone 16 128GB price today\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 38
+        },
+        {
+          "names": [
+            "read_page"
+          ],
+          "arguments": [
+            "{\"sourceId\": \"S5\"}"
+          ],
+          "finish": "tool_calls",
+          "completionTokens": 28
+        }
+      ],
+      "sources": [
+        {
+          "sourceId": "S1",
+          "title": "iPhone 16 128GB (Unlocked) – Gazelle",
+          "url": "https://buy.gazelle.com/products/iphone-16-128gb-unlocked",
+          "retrievedAt": "2026-11-15T21:19:04Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S2",
+          "title": "Facebook",
+          "url": "https://www.facebook.com/fb-answers/iphone-16-price-in-us",
+          "retrievedAt": "2026-11-15T21:19:04Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S3",
+          "title": "Apple, Pre-Owned iPhone 16, Carrier Unlocked, 128GB, Black - Walmart.com",
+          "url": "https://www.walmart.com/ip/Apple-iPhone-16-Carrier-Unlocked-128GB-Black/20808973661?conditionGroupCode=2",
+          "retrievedAt": "2026-11-15T21:19:04Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S4",
+          "title": "Amazon.com : iphone 16",
+          "url": "https://www.amazon.com/iphone-16/s?k=iphone+16",
+          "retrievedAt": "2026-11-15T21:19:04Z",
+          "evidenceKind": "search"
+        },
+        {
+          "sourceId": "S5",
+          "title": "Buy iPhone 16 128GB Pink - Apple",
+          "url": "https://www.apple.com/shop/buy-iphone/iphone-16/6.1-inch-display-128gb-pink-unlocked",
+          "retrievedAt": "2026-11-15T21:19:06Z",
+          "evidenceKind": "page"
+        }
+      ]
+    }
+  ]
+}
