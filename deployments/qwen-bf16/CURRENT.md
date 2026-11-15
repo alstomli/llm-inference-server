@@ -36,7 +36,9 @@ The stale Jupyter origin failed the launcher's exact-Pod origin guard during ini
 
 Read-only checks confirmed gateway **200** with `ready=true`, both base/adapter model registrations, native CPU KV mapping of **68,695,359,488 bytes**, the expected engine flags, and zero OOM/OOM-kill events or swap. Public authentication checks at **20:43:58 UTC** returned **200** for the gateway (8001), Jupyter (8888) and metrics relay (8889), with `gpu_exporter_up=1`. Missing/invalid credentials were rejected with **401** by gateway/metrics and **403** by Jupyter. The model engine listens only on `127.0.0.1:8000`; its unexposed public proxy returns **404**. No Jupyter kernel was created for these checks.
 
-Migration verification is limited to configuration, authenticated service readiness and access controls. No load benchmark or profile tuning was performed. The November 14 workload timings and graph observations below were not remeasured on this Pod.
+Two bounded functional checks through the production hosted chat UI completed successfully: one base-model request and one trained-adapter request, each with a 128-token output cap and the expected exact response. The signed-in UI showed the model online and the correct base/adapter labels. On the new metrics instance, native request-success counters increased from **0 to 2** between **20:43:40 and 20:45:37 UTC**, both with stop completions; length/abort/error/repetition counters remained zero. Final engine running/waiting queues were empty, and the sole BF16 monitoring target was healthy with `up=1` and `gpu_exporter_up=1`. These were hosted application checks; the runtime readiness checks sent no direct inference requests.
+
+Migration verification is limited to configuration, authenticated service readiness, access controls and those two hosted functional checks. No load benchmark or profile tuning was performed. The November 14 workload timings and graph observations below were not remeasured on this Pod.
 
 ## November 14 bounded acceptance and limits of the evidence
 
