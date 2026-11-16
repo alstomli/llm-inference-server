@@ -85,7 +85,19 @@ alias still requires its own verification match. `webSearch.models` contains
 clients use the matching `useAdapter` entry for their current selection.
 
 Requests may include `webSearch:{version:1,mode:"off"|"auto"|"required"}`.
-Omitting this field is off. Client-supplied tool definitions, URLs and old source
+The companion chat frontend now automatically submits `auto` for eligible text;
+there is no semantic router or search toggle. The native model decides from the
+request and conversation whether to search, answer directly, or clarify. The
+system policy honors explicit browse/do-not-browse instructions, searches for
+current facts and external verification, and keeps stable knowledge and
+supplied-text tasks direct. A request-scoped UTC date stays in both planner and
+final system messages. Planners receive a short READY handoff instruction;
+final synthesis removes that phase instruction while retaining policy and date.
+The strict parser still rejects incomplete tool and no-tool responses. A no-tool
+run uses the existing planner plus final calls and completes without sources;
+clients must not label that as a completed search.
+
+Omitting this field is off for gateway clients. Client-supplied tool definitions, URLs and old source
 registries do not authorize tools. Auto may answer without searching; required
 forces the first model action to search. Docs mode and images cannot be combined
 with active web search. Unavailable requests return 503 with rejection

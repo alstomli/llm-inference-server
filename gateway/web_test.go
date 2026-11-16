@@ -114,6 +114,9 @@ func TestWebSearchReadFinalProtocolAndBudgets(t *testing.T) {
 					t.Errorf("Qwen rejects system message at index %d", index)
 				}
 			}
+			if !strings.Contains(messages[0].(map[string]any)["content"].(string), "Current UTC date: "+time.Now().UTC().Format("2006-01-02")) {
+				t.Error("request date lost from planner or final system prompt")
+			}
 			if payload["stream"] == true {
 				if len(messages) != 6 {
 					t.Errorf("finalization changed tool transcript length: %d", len(messages))
@@ -452,5 +455,71 @@ func TestWebCancellationReleasesProviderAndAdmission(t *testing.T) {
 	}
 	if g.admission.snapshot()["activeRequests"] != 0 {
 		t.Fatal("reservation retained")
+	}
+}
+
+func TestWebAutoDirectAnswerDoesNotCallProvider(t *testing.T) {
+	provider := &fakeWeb{}
+	calls := 0
+	var firstSystem string
+	g, server := testGateway(t, webConfig(provider), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tokenize" && r.URL.Path != "/v1/chat/completions" {
+			basicUpstream(w, r)
+			return
+		}
+		var payload map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		if r.URL.Path == "/tokenize" {
+			writeJSON(w, 200, map[string]int{"count": 100})
+			return
+		}
+		calls++
+		messages := payload["messages"].([]any)
+		system := messages[0].(map[string]any)["content"].(string)
+		if payload["stream"] != true {
+			firstSystem = system
+			if !strings.Contains(system, webPlannerInstruction) {
+				t.Error("planner directive missing from fitted conversation")
+			}
+			if payload["tool_choice"] != "auto" {
+				t.Error("auto request forced a tool")
+			}
+			writeJSON(w, 200, stopFixture(20))
+			return
+		}
+		if !strings.HasPrefix(system, strings.TrimSuffix(firstSystem, webPlannerInstruction)+"\n\nTool use is finished") || !strings.Contains(system, "Current UTC date:") || strings.Contains(system, webPlannerInstruction) {
+			t.Error("final lost request system/date")
+		}
+		_, _ = io.WriteString(w, finalFixture)
+	}))
+	defer server.Close()
+	defer g.Close()
+	w := httptest.NewRecorder()
+	g.ServeHTTP(w, authorizedRequest(context.Background(), "http://gateway", webBody("auto")))
+	if w.Code != 200 || calls != 2 || provider.searches != 0 || provider.pages != 0 {
+		t.Fatalf("direct path: status=%d modelCalls=%d searches=%d pages=%d", w.Code, calls, provider.searches, provider.pages)
+	}
+	if strings.Contains(w.Body.String(), `"status":"searching"`) || !strings.Contains(w.Body.String(), `"outcome":"completed"`) {
+		t.Fatal("direct request claimed search or lacked completion")
+	}
+}
+
+func TestWebRejectsTruncatedNoToolResponse(t *testing.T) {
+	raw := stopFixture(512).(map[string]any)
+	raw["choices"].([]any)[0].(map[string]any)["finish_reason"] = "length"
+	if _, err := parseWebAssistant(raw); err == nil {
+		t.Fatal("truncated no-tool planner response must remain rejected")
+	}
+}
+
+func TestWebFinalEmptyContentFailsClosed(t *testing.T) {
+	for _, content := range []string{"", "   "} {
+		w := httptest.NewRecorder()
+		run := webRun{s: &chatState{w: w}, ctx: context.Background(), id: "empty"}
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"content": content}, "finish_reason": "stop"}}})
+		run.streamFinal(strings.NewReader("data: " + string(raw) + "\n\ndata: [DONE]\n\n"))
+		if strings.Contains(w.Body.String(), `"outcome":"completed"`) || !strings.Contains(w.Body.String(), `"outcome":"failed"`) {
+			t.Fatal("empty answer reported success", w.Body.String())
+		}
 	}
 }
