@@ -106,6 +106,8 @@ func (run *webRun) status(status string) error {
 	return run.event("web-status", map[string]any{"status": status})
 }
 func (run *webRun) fail(reason string) {
+	run.s.traceRecord("failure", map[string]any{"reason": reason})
+	run.s.traceEnd(false, reason)
 	if run.ctx.Err() == context.Canceled {
 		return
 	}
@@ -427,7 +429,7 @@ func (s *chatState) webChat(ctx context.Context, model, mode string, messages []
 		if time.Until(run.workDeadline) <= 0 {
 			break
 		}
-		plannerBudget := min(512, remaining-reserve)
+		plannerBudget := min(2048, remaining-reserve)
 		if plannerBudget <= 0 {
 			break
 		}
@@ -443,6 +445,8 @@ func (s *chatState) webChat(ctx context.Context, model, mode string, messages []
 		if cacheSalt != "" {
 			payload["cache_salt"] = cacheSalt
 		}
+		s.traceRequest(fmt.Sprintf("Planning %d", callNumber+1), payload, settings)
+		s.traceStart()
 		workCtx, workCancel := context.WithDeadline(ctx, run.workDeadline)
 		response, err := s.gateway.request(workCtx, "POST", "/v1/chat/completions", payload)
 		if err != nil {
@@ -465,6 +469,7 @@ func (s *chatState) webChat(ctx context.Context, model, mode string, messages []
 			run.fail("invalid_model_response")
 			return
 		}
+		s.traceResponse(raw)
 		object, _ := raw.(map[string]any)
 		usage, _ := object["usage"].(map[string]any)
 		used, valid := asInt(usage["completion_tokens"])
@@ -497,6 +502,7 @@ func (s *chatState) webChat(ctx context.Context, model, mode string, messages []
 			return
 		}
 		run.conversation = append(run.conversation, assistant)
+		s.traceRecord("tool", map[string]any{"call": assistant.ToolCalls[0], "result": result})
 		encoded, _ := json.Marshal(result)
 		run.conversation = append(run.conversation, map[string]any{"role": "tool", "tool_call_id": assistant.ToolCalls[0].ID, "content": string(encoded)})
 		if run.searches >= 2 && run.pages >= 3 {
@@ -527,6 +533,11 @@ func (s *chatState) webChat(ctx context.Context, model, mode string, messages []
 	if cacheSalt != "" {
 		payload["cache_salt"] = cacheSalt
 	}
+	if s.diagnostic != nil {
+		payload["stream_options"] = map[string]bool{"include_usage": true}
+	}
+	s.traceRequest("Final answer", payload, settings)
+	s.traceStart()
 	response, err := s.gateway.request(ctx, "POST", "/v1/chat/completions", payload)
 	if err != nil {
 		run.fail("model_unavailable")
@@ -570,6 +581,7 @@ func (run *webRun) streamFinal(body io.Reader) {
 					run.fail("incomplete_final_stream")
 					return
 				}
+				run.s.traceEnd(true, "")
 				if run.event("web-complete", map[string]any{"outcome": "completed"}) != nil {
 					return
 				}
@@ -577,8 +589,10 @@ func (run *webRun) streamFinal(body io.Reader) {
 				return
 			}
 			if len(data) > 0 {
+				run.s.traceFrame(data)
 				var item struct {
-					Error   any `json:"error"`
+					Usage   map[string]any `json:"usage"`
+					Error   any            `json:"error"`
 					Choices []struct {
 						Delta struct {
 							ToolCalls any `json:"tool_calls"`
@@ -587,7 +601,7 @@ func (run *webRun) streamFinal(body io.Reader) {
 						FinishReason *string `json:"finish_reason"`
 					} `json:"choices"`
 				}
-				if json.Unmarshal(data, &item) != nil || item.Error != nil || len(item.Choices) != 1 {
+				if json.Unmarshal(data, &item) != nil || item.Error != nil || (len(item.Choices) != 1 && !(len(item.Choices) == 0 && item.Usage != nil)) {
 					run.fail("invalid_final_stream")
 					return
 				}
