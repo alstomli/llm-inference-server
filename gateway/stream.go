@@ -57,6 +57,7 @@ func (s *chatState) stream(ctx context.Context, body io.Reader, fitMs float64, u
 		return nil
 	}
 	fail := func() {
+		s.traceEnd(false, "interrupted_stream")
 		if ctx.Err() == context.Canceled {
 			return
 		}
@@ -83,6 +84,11 @@ func (s *chatState) stream(ctx context.Context, body io.Reader, fitMs float64, u
 				}
 				frame := buffer[:end]
 				data := eventData(frame)
+				if bytes.Equal(data, []byte("[DONE]")) {
+					s.traceEnd(true, "")
+				} else {
+					s.traceFrame(data)
+				}
 				if s.image && len(data) > 0 && !bytes.Equal(data, []byte("[DONE]")) {
 					var item map[string]json.RawMessage
 					if e := json.Unmarshal(data, &item); e != nil || item == nil {
@@ -132,6 +138,7 @@ func (s *chatState) stream(ctx context.Context, body io.Reader, fitMs float64, u
 					return
 				}
 			}
+			s.traceEnd(false, "incomplete_stream")
 			if s.diagnostic != nil && !timingSent {
 				_ = emitTiming()
 			}

@@ -244,6 +244,7 @@ type chatState struct {
 	gateway    *Gateway
 	w          http.ResponseWriter
 	diagnostic map[string]any
+	trace      *traceState
 	adapter    bool
 	image      bool
 	started    time.Time
@@ -265,6 +266,13 @@ func (s *chatState) fail(status int, message, rejection string, retry int) {
 	}
 	if retry > 0 {
 		s.w.Header().Set("Retry-After", strconv.Itoa(retry))
+	}
+	if s.trace != nil && !s.trace.started {
+		s.traceRecord("failure", map[string]any{"reason": message, "status": status})
+		s.w.Header().Set("Content-Type", "application/json")
+		s.w.WriteHeader(status)
+		_ = json.NewEncoder(s.w).Encode(map[string]any{"error": map[string]string{"message": message}, "trace": map[string]any{"version": 1, "requestId": s.diagnostic["requestId"], "records": s.trace.pending, "complete": false, "reason": "upstream_failure"}})
+		return
 	}
 	writeError(s.w, status, message)
 }
@@ -505,6 +513,7 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 	if !settings.reuse {
 		payload["cache_salt"] = randomHex(32)
 	}
+	s.traceRequest("Chat", payload, settings)
 	response, e := g.request(ctx, "POST", "/v1/chat/completions", payload)
 	if e != nil {
 		s.modelFail("Model unavailable")
@@ -530,5 +539,6 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 	if e := controller.Flush(); e != nil {
 		return
 	}
+	s.traceStart()
 	s.stream(ctx, response.Body, fitMs, upstreamStarted)
 }
