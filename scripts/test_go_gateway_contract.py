@@ -435,7 +435,32 @@ class GatewayContractTests(unittest.TestCase):
                 timing = json.loads(event.split(b'data: ', 1)[1].split(b'\n\n', 1)[0])
                 self.assertEqual(request_id, timing['requestId'])
                 self.assertTrue(all(value is not None and value >= 0 for value in timing['timings'].values()))
-                self.assertEqual(CONTENT + FINISH, before.split(b'data: {"choices":[],')[0])
+                # Go adds opt-in trace metadata; ordinary answer frames remain exact.
+                frames = [frame + b'\n\n' for frame in before.split(b'\n\n') if frame]
+                trace_frames = [frame for frame in frames if frame.startswith(b'event: chat-trace')]
+                if result is results[1]:
+                    self.assertGreater(len(trace_frames), 1)
+                    pending = ''
+                    requests = []
+                    for sequence, frame in enumerate(trace_frames, 1):
+                        item = json.loads(frame.split(b'data: ', 1)[1])
+                        self.assertEqual(request_id, item['requestId'])
+                        self.assertEqual(sequence, item['sequence'])
+                        if frame.startswith(b'event: chat-trace-end\n'):
+                            self.assertTrue(item['complete'])
+                            self.assertEqual('', pending)
+                        else:
+                            pending += item['data']
+                            if item['last']:
+                                record = json.loads(pending)
+                                if record['kind'] == 'request':
+                                    requests.append(record['payload']['sent'])
+                                pending = ''
+                    self.assertEqual(pair[1].model.bodies('/v1/chat/completions'), requests)
+                else:
+                    self.assertEqual([], trace_frames)
+                ordinary = b''.join(frame for frame in frames if not frame.startswith(b'event: chat-trace'))
+                self.assertEqual(CONTENT + FINISH, ordinary.split(b'data: {"choices":[],')[0])
             self.assertEqual(diagnostics[0], diagnostics[1])
 
     def test_prefix_reuse_disabled_has_distinct_server_salts(self):
