@@ -16,3 +16,4 @@ benchmark-results/
 gateway/chat-gateway
 gateway/chat-gateway.exe
 gateway/coverage.out
+acceptance-results/
