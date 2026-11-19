@@ -91,7 +91,7 @@ The PyTorch-template startup scripts and duplicate monitoring procedure were rem
 
 Monitoring verification on the original November 2 Pod passed: missing token returned 401, wrong token returned 401, correct token returned 200 with vLLM/GPU metrics, and an authenticated model route returned 404. Its relay used port 8889 while Jupyter used 8888. These are historical access checks, not a current health assertion.
 
-The active image uses `scripts/start-server.sh` for supervised startup, the Go gateway by default, and the shared `scripts/metrics-relay.py`. `prepare_model.py` and its tests remain active; `config.json` supplies the model ID to checkpoint preparation, but its old context/offload fields do not override the launcher's environment. Current release and rollback steps live in the [repository README](../../README.md).
+The active image uses `scripts/start-server.sh` for supervised startup, the Go gateway by default, and the shared `scripts/metrics-relay.py`. `scripts/prepare_model.py` (shared staging, `bf16` profile) and its tests remain active; `config.json` supplies the model ID to checkpoint preparation, but its old context/offload fields do not override the launcher's environment. Current release and rollback steps live in the [repository README](../../README.md).
 
 ## References
 
