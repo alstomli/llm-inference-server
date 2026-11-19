@@ -19,13 +19,12 @@ DEFAULT_EXTENSIONS = ('.safetensors', '.json', '.txt', '.jinja', '.model', '.tik
 
 @dataclass(frozen=True)
 class Profile:
-    name: str
     model_id: str
     revision: str | None  # None pins the current main commit on the first run.
-    root_env: str
-    default_root: str
-    staging: str
-    label: str
+    root_env: str  # Environment variable that overrides default_root.
+    default_root: Path
+    staging: Path  # Scratch download folder on the container disk.
+    label: str  # Glossary name of the checkpoint, used in errors.
     validate: Callable[[Path], dict]  # Returns extra manifest fields; raises to refuse.
     extensions: tuple = DEFAULT_EXTENSIONS
 
@@ -56,9 +55,9 @@ def validate_bf16(model_dir):
 
 
 PROFILES = {
-    'bf16': Profile(name='bf16', model_id='Qwen/Qwen3.8-27B', revision=None,
-                    root_env='BF16_ROOT', default_root='/workspace/qwen-bf16',
-                    staging='/opt/qwen-bf16/download', label='original Qwen',
+    'bf16': Profile(model_id='Qwen/Qwen3.8-27B', revision=None,
+                    root_env='BF16_ROOT', default_root=Path('/workspace/qwen-bf16'),
+                    staging=Path('/opt/qwen-bf16/download'), label='BF16 base',
                     validate=validate_bf16),
 }
 
@@ -70,11 +69,9 @@ def select_profile(environ):
     return PROFILES[name]
 
 
-PROFILE = select_profile(os.environ)
-ROOT = Path(os.environ.get(PROFILE.root_env, PROFILE.default_root))
-STAGING = Path(PROFILE.staging)
-MODEL = ROOT / 'model'
-MANIFEST = ROOT / 'model-manifest.json'
+# Optional overrides of the selected profile's folders, used by offline tests.
+ROOT = None
+STAGING = None
 
 
 def write_manifest(manifest, state):
@@ -144,7 +141,9 @@ def stage(profile, root, staging):
 
 
 def main():
-    stage(PROFILE, ROOT, STAGING)
+    profile = select_profile(os.environ)
+    root = ROOT or Path(os.environ.get(profile.root_env, profile.default_root))
+    stage(profile, root, STAGING or profile.staging)
 
 
 if __name__ == '__main__':

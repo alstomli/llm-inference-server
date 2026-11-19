@@ -127,16 +127,16 @@ class ProfileStagingTests(unittest.TestCase):
         def validate(model_dir):
             self.validated.append(model_dir)
             return {'checked_by': 'fake-profile'}
-        fields = dict(name='fake', model_id='example/model', revision='b' * 40,
-                      root_env='FAKE_ROOT', default_root=str(self.root),
-                      staging=str(self.root.parent / 'local'), label='fake',
+        fields = dict(model_id='example/model', revision='b' * 40,
+                      root_env='FAKE_ROOT', default_root=self.root,
+                      staging=self.root.parent / 'local', label='fake',
                       validate=validate, extensions=('.safetensors', '.json', '.bin'))
         fields.update(overrides)
         return self.module.Profile(**fields)
 
     def stage(self, profile):
         with redirect_stdout(io.StringIO()):
-            self.module.stage(profile, self.root, Path(profile.staging))
+            self.module.stage(profile, self.root, profile.staging)
         return json.loads((self.root / 'model-manifest.json').read_text())
 
     def test_profile_supplies_revision_extensions_and_validation(self):
@@ -174,8 +174,8 @@ class ProfileStagingTests(unittest.TestCase):
         bf16 = self.module.PROFILES['bf16']
         self.assertEqual((bf16.model_id, bf16.revision, bf16.root_env, bf16.default_root,
                           bf16.staging),
-                         ('Qwen/Qwen3.8-27B', None, 'BF16_ROOT', '/workspace/qwen-bf16',
-                          '/opt/qwen-bf16/download'))
+                         ('Qwen/Qwen3.8-27B', None, 'BF16_ROOT', Path('/workspace/qwen-bf16'),
+                          Path('/opt/qwen-bf16/download')))
 
 
 if __name__ == '__main__':
