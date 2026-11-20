@@ -183,10 +183,10 @@ if [[ "$chat" == true && ! -r "${CHAT_TOKEN_FILE:-/workspace/chat/chat-token}" ]
   exit 1
 fi
 if [[ "$chat" == true ]]; then
-  case "${CHAT_GATEWAY_IMPLEMENTATION:-go}" in
-    go|python) ;;
-    *) echo 'CHAT_GATEWAY_IMPLEMENTATION must be go or python.' >&2; exit 1 ;;
-  esac
+  [[ "${CHAT_GATEWAY_IMPLEMENTATION:-go}" == go ]] || {
+    echo 'CHAT_GATEWAY_IMPLEMENTATION must be go or unset; the Python gateway was removed.' >&2
+    exit 1
+  }
 fi
 
 children=()
@@ -208,11 +208,7 @@ if [[ "$metrics" == true ]]; then
   children+=("$!")
 fi
 if [[ "$chat" == true ]]; then
-  if [[ "${CHAT_GATEWAY_IMPLEMENTATION:-go}" == python ]]; then
-    python3 /usr/local/lib/chat-gateway.py &
-  else
-    /usr/local/bin/chat-gateway &
-  fi
+  /usr/local/bin/chat-gateway &
   children+=("$!")
 fi
 start_model &

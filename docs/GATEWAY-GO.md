@@ -67,22 +67,22 @@ go test -race ./...
 go build -trimpath -o chat-gateway ./cmd/chat-gateway
 ```
 
-The Python reference is retained in `scripts/chat-gateway.py`. Run the external
-HTTP contract suite against the built Go binary and the Python reference:
+The Python gateway this replaced was removed after the Go gateway served
+production. Run the external HTTP contract suite against the built Go binary:
 
 ```sh
 CHAT_GATEWAY_BINARY="$PWD/gateway/chat-gateway" python scripts/test_go_gateway_contract.py
 ```
 
-The runner requires Python with FastAPI, Uvicorn, HTTPX, and Pillow. It uses local
-fake upstreams, disposable test credentials, and no GPU or production services.
-The image contains the binary at the runner's default location. CI and release
-checks also run the existing Python suite and launcher supervision tests.
+The runner requires Python with Pillow. It uses local fake upstreams, disposable
+test credentials, and no GPU or production services. The image contains the
+binary at the runner's default location. CI and release checks also run the
+launcher supervision tests.
 
-The existing frontend integration runner can exercise Go by setting
-`CHAT_GATEWAY_BINARY` to the compiled executable along with its usual
-`CHAT_TEST_FIXTURE_PYTHON` and optional image-test settings. The backend fixture
-starts the Go process against the fake model with disposable credentials.
+The frontend integration runner's backend fixture (`scripts/chat_test_fixture.py`)
+starts the Go gateway against a fake model with disposable credentials: the
+image's binary by default, or the executable named by `CHAT_GATEWAY_BINARY`
+when the fixture runs outside the image with `CHAT_TEST_FIXTURE_PYTHON`.
 
 ```sh
 docker build --platform linux/amd64 -t inference-go-check .
@@ -100,14 +100,12 @@ version. Before production rollout, verify authenticated readiness, streamed
 text, BF16 image input and adapter modes, quota rejection, stop/disconnect
 cleanup, and actual GPU capacity recovery on a controlled deployment.
 
-The default is `CHAT_GATEWAY_IMPLEMENTATION=go`. To explicitly select the
-quota-compatible Python implementation in the same image, set
-`CHAT_GATEWAY_IMPLEMENTATION=python` and restart through the normal deployment
-process. Invalid values refuse chat-enabled startup. Exactly one gateway starts;
-do not run independent Go and Python schedulers against the same model process.
-Keep `CHAT_REQUIRE_USER_ID=true` for the frontend's account quota contract.
+`CHAT_GATEWAY_IMPLEMENTATION` may be unset or `go`; any other value, including the
+removed `python`, refuses chat-enabled startup. Keep `CHAT_REQUIRE_USER_ID=true`
+for the frontend's account quota contract.
 
-Rollback can also use the prior immutable, quota-compatible Python image.
+To roll back, deploy a prior immutable, quota-compatible image; images released
+before the removal still contain the Python gateway.
 Keep the persistent volume and token file. Never downgrade to an image that
 silently omits account enforcement. Startup continues to stop the other managed
 services if any child exits.
