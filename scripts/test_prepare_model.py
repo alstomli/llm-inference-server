@@ -178,5 +178,140 @@ class ProfileStagingTests(unittest.TestCase):
                           Path('/opt/qwen-bf16/download')))
 
 
+PINNED_4BIT = '71dface38d4cbfa34121f1d446d4a0fa1025f13c'
+
+
+def safetensors(tensors):
+    """A tiny safetensors file holding the given {name: dtype} tensors."""
+    header = {name: {'dtype': dtype, 'shape': [1], 'data_offsets': [0, 4]}
+              for name, dtype in tensors.items()}
+    raw = json.dumps(header).encode()
+    return struct.pack('<Q', len(raw)) + raw + b'\0' * 4
+
+
+def int4_config(**weights):
+    """config.json of the reviewed RedHat checkpoint: compressed-tensors W4A16."""
+    group = {'targets': ['Linear'],
+             'weights': {'num_bits': 4, 'type': 'int', 'symmetric': True,
+                         'group_size': 128, 'strategy': 'group', 'actorder': 'static',
+                         **weights},
+             'input_activations': None, 'output_activations': None}
+    return {'architectures': ['Qwen3_5ForConditionalGeneration'],
+            'quantization_config': {
+                'quant_method': 'compressed-tensors', 'format': 'pack-quantized',
+                'quantization_status': 'compressed', 'config_groups': {'group_0': group},
+                'ignore': ['lm_head', 'model.visual.blocks.0.attn.qkv'],
+                'kv_cache_scheme': {'num_bits': 8, 'type': 'float', 'strategy': 'tensor'}}}
+
+
+INT4_TENSORS = {'model.language_model.layers.0.mlp.down_proj.weight_packed': 'I32',
+                'model.language_model.layers.0.mlp.down_proj.weight_scale': 'BF16',
+                'model.language_model.embed_tokens.weight': 'BF16',
+                'model.visual.blocks.0.attn.qkv.weight': 'BF16'}
+
+
+class FourBitStagingTests(unittest.TestCase):
+    """The 4bit profile stages only the reviewed compressed-tensors W4A16 checkpoint."""
+
+    def setUp(self):
+        self.hub_sha = PINNED_4BIT
+        self.revisions = []
+        self.data = {'config.json': json.dumps(int4_config()).encode(),
+                     'model.safetensors': safetensors(INT4_TENSORS),
+                     'tokenizer.json': b'{}'}
+        fake = types.ModuleType('huggingface_hub')
+
+        def info(*args, **kwargs):
+            self.revisions.append(kwargs.get('revision'))
+            siblings = [types.SimpleNamespace(
+                rfilename=name, size=len(value), lfs=types.SimpleNamespace(
+                    sha256=hashlib.sha256(value).hexdigest()))
+                for name, value in self.data.items()]
+            return types.SimpleNamespace(sha=self.hub_sha, siblings=siblings)
+
+        def download(model_id, filename, revision, local_dir):
+            target = Path(local_dir) / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(self.data[filename])
+            return str(target)
+
+        fake.HfApi = lambda: types.SimpleNamespace(model_info=info)
+        fake.hf_hub_download = download
+        with patch.dict(sys.modules, {'huggingface_hub': fake}):
+            spec = importlib.util.spec_from_file_location(
+                'prepare_model_4bit_check', Path(__file__).with_name('prepare_model.py'))
+            self.module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(self.module)
+        temporary = tempfile.TemporaryDirectory(prefix='qwen-4bit-check-', dir=Path.cwd())
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve() / 'volume'
+        self.root.mkdir()
+        (self.root / 'config.json').write_text('{"model_id":"RedHatAI/Qwen3.8-27B-INT4"}')
+        self.profile = self.module.PROFILES['4bit']
+
+    def stage(self, profile=None):
+        with redirect_stdout(io.StringIO()):
+            self.module.stage(profile or self.profile, self.root, self.root.parent / 'local')
+        return json.loads((self.root / 'model-manifest.json').read_text())
+
+    def manifest(self):
+        return json.loads((self.root / 'model-manifest.json').read_text())
+
+    def test_4bit_profile_pins_the_reviewed_revision_on_its_own_volume(self):
+        self.assertEqual((self.profile.model_id, self.profile.revision, self.profile.root_env,
+                          self.profile.default_root, self.profile.staging),
+                         ('RedHatAI/Qwen3.8-27B-INT4', PINNED_4BIT, 'QWEN_4BIT_ROOT',
+                          Path('/workspace/qwen-4bit'), Path('/opt/qwen-4bit/download')))
+        self.assertIs(self.module.select_profile({'MODEL_PROFILE': '4bit'}), self.profile)
+
+    def test_stages_w4a16_checkpoint_with_vision_tower_at_the_pin(self):
+        state = self.stage()
+        self.assertTrue(state['complete'])
+        self.assertEqual(state['revision'], PINNED_4BIT)
+        self.assertEqual(self.revisions, [PINNED_4BIT])
+        self.assertEqual(state['quantization'], 'compressed-tensors W4A16')
+        self.assertEqual(state['tensor_dtypes'], {'I32': 1, 'BF16': 3})
+
+    def test_refuses_a_hub_revision_other_than_the_pin(self):
+        self.hub_sha = 'd' * 40
+        with self.assertRaisesRegex(ValueError, 'pinned revision'):
+            self.stage()
+        self.assertFalse((self.root / 'model').exists())
+
+    def test_refuses_to_stage_without_a_pinned_revision(self):
+        with self.assertRaisesRegex(ValueError, 'pinned revision'):
+            self.stage(self.module.Profile(**{**self.profile.__dict__, 'revision': None}))
+        self.assertEqual(self.revisions, [])
+
+    def test_refuses_checkpoints_that_are_not_compressed_tensors_w4a16(self):
+        bf16 = {'architectures': ['Qwen3_5ForConditionalGeneration']}
+        awq = {**int4_config(), 'quantization_config': {'quant_method': 'awq', 'bits': 4}}
+        w8 = int4_config(num_bits=8)
+        w4a8 = int4_config()
+        w4a8['quantization_config']['config_groups']['group_0']['input_activations'] = {
+            'num_bits': 8, 'type': 'int'}
+        cases = {'unquantized': (bf16, {'model.visual.blocks.0.weight': 'BF16',
+                                        'model.language_model.layers.0.weight': 'BF16'}),
+                 'awq': (awq, INT4_TENSORS), 'eight-bit weights': (w8, INT4_TENSORS),
+                 'quantized activations': (w4a8, INT4_TENSORS),
+                 'no packed weights': (int4_config(), {'model.visual.blocks.0.weight': 'BF16',
+                                                       'model.language_model.layers.0.weight': 'BF16'})}
+        for name, (config, tensors) in cases.items():
+            with self.subTest(name):
+                (self.root / 'model-manifest.json').unlink(missing_ok=True)
+                self.data['config.json'] = json.dumps(config).encode()
+                self.data['model.safetensors'] = safetensors(tensors)
+                with self.assertRaisesRegex(ValueError, 'W4A16'):
+                    self.stage()
+                self.assertFalse(self.manifest()['complete'])
+
+    def test_refuses_a_checkpoint_without_the_vision_tower(self):
+        self.data['model.safetensors'] = safetensors(
+            {name: dtype for name, dtype in INT4_TENSORS.items() if 'visual' not in name})
+        with self.assertRaisesRegex(ValueError, 'vision tower'):
+            self.stage()
+        self.assertFalse(self.manifest()['complete'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -356,3 +356,46 @@ func TestSlowDownstreamReaderReleasesReservation(t *testing.T) {
 	}
 	t.Fatal("slow downstream leaked admission reservation")
 }
+
+func TestFourBitHealthReportsOneAliasWithVisionAndRejectsAdapterRequests(t *testing.T) {
+	c := testConfig()
+	c.ModelProfile, c.Model, c.ImageInput = "4bit", "qwen-4bit", true
+	_, server := testGateway(t, c, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			io.WriteString(w, `{"data":[{"id":"qwen-4bit","max_model_len":40960}]}`)
+			return
+		}
+		basicUpstream(w, r)
+	}))
+	r, _ := http.NewRequest("GET", server.URL+"/health", nil)
+	r.Header.Set("Authorization", "Bearer "+strings.Repeat("t", 32))
+	response, e := http.DefaultClient.Do(r)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var health struct {
+		Model                  string
+		AdapterToggleAvailable bool
+		ImageInput             map[string]any
+		WebSearch              struct{ Models []map[string]any }
+	}
+	if e := json.NewDecoder(response.Body).Decode(&health); e != nil {
+		t.Fatal(e)
+	}
+	response.Body.Close()
+	if health.Model != "qwen-4bit" || health.AdapterToggleAvailable || health.ImageInput == nil {
+		t.Fatalf("4bit health: %+v", health)
+	}
+	if len(health.WebSearch.Models) != 1 || health.WebSearch.Models[0]["model"] != "qwen-4bit" || health.WebSearch.Models[0]["useAdapter"] != false {
+		t.Fatalf("4bit web-search models: %+v", health.WebSearch.Models)
+	}
+	request := strings.TrimSuffix(testRequest, "}") + `,"useAdapter":true}`
+	response, e = http.DefaultClient.Do(authorizedRequest(context.Background(), server.URL, request))
+	if e != nil {
+		t.Fatal(e)
+	}
+	response.Body.Close()
+	if response.StatusCode != 400 {
+		t.Fatalf("adapter request on 4bit: status %d", response.StatusCode)
+	}
+}

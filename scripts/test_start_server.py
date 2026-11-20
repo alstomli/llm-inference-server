@@ -3,6 +3,7 @@ import json
 import struct
 import os
 from pathlib import Path
+import shutil
 import signal
 import socket
 import subprocess
@@ -11,6 +12,8 @@ import time
 import unittest
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+PINNED_4BIT = '71dface38d4cbfa34121f1d446d4a0fa1025f13c'
 
 
 class StartupTests(unittest.TestCase):
@@ -66,7 +69,8 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
             'CHAT_TOKEN_FILE': str(self.token_file),
             'JUPYTER_ENABLED': 'false',
         }
-        for key in ('MODEL_PROFILE', 'MODEL_ID', 'SERVED_MODEL_NAME', 'BF16_ROOT',
+        for key in ('MODEL_PROFILE', 'MODEL_ID', 'SERVED_MODEL_NAME', 'BF16_ROOT', 'QWEN_4BIT_ROOT',
+                    'FAKE_HUB_SHA', 'CHAT_IMAGE_INPUT_ENABLED',
                     'VLLM_BASE_MODEL_NAME', 'LORA_ADAPTER_PATH', 'MAX_LORA_RANK',
                     'CPU_OFFLOAD_GB', 'MAX_NUM_SEQS', 'MAX_MODEL_LEN', 'CHAT_GATEWAY_IMPLEMENTATION',
                     'CHAT_WEB_SEARCH_ENABLED', 'CHAT_WEB_SEARCH_MODEL_VERIFIED',
@@ -371,7 +375,7 @@ class HfApi:
         files = [types.SimpleNamespace(rfilename=p.name, size=p.stat().st_size,
                  lfs=types.SimpleNamespace(sha256=hashlib.sha256(p.read_bytes()).hexdigest()))
                  for p in Path(os.environ['FAKE_CHECKPOINT']).iterdir()]
-        return types.SimpleNamespace(sha='a' * 40, siblings=files)
+        return types.SimpleNamespace(sha=os.environ.get('FAKE_HUB_SHA', 'a' * 40), siblings=files)
 def hf_hub_download(model_id, filename, revision, local_dir):
     Path(local_dir).mkdir(parents=True, exist_ok=True)
     target = Path(local_dir) / filename
@@ -481,7 +485,7 @@ def hf_hub_download(model_id, filename, revision, local_dir):
         self.closed(8000)
 
     def test_invalid_profile_fails_before_starting_services(self):
-        for profile in ('4bit', 'unknown', ''):
+        for profile in ('4BIT', 'unknown', ''):
             with self.subTest(profile=profile):
                 args_file = self.root / 'forbidden-model-args.json'
                 self.start(MODEL_PROFILE=profile, FAKE_ARG_FILE=str(args_file))
@@ -492,6 +496,119 @@ def hf_hub_download(model_id, filename, revision, local_dir):
                 self.closed(8000)
                 self.closed(self.port)
                 self.closed(self.chat_port)
+
+    def four_bit_environment(self, quantization=None, tensors=None):
+        # Disposable stand-in for RedHatAI/Qwen3.8-27B-INT4: compressed-tensors W4A16 with a BF16 vision tower.
+        env = self.bf16_environment()  # Writes the fake huggingface_hub module.
+        root = self.root / 'qwen-4bit'
+        root.mkdir(exist_ok=True)
+        (root / 'config.json').write_text('{"model_id":"RedHatAI/Qwen3.8-27B-INT4"}')
+        source = self.root / 'checkpoint-4bit'
+        source.mkdir(exist_ok=True)
+        group = {'targets': ['Linear'], 'weights': {'num_bits': 4, 'type': 'int', 'group_size': 128},
+                 'input_activations': None}
+        (source / 'config.json').write_text(json.dumps({'quantization_config': quantization or {
+            'quant_method': 'compressed-tensors', 'format': 'pack-quantized',
+            'config_groups': {'group_0': group}}}))
+        header = json.dumps({name: {'dtype': dtype, 'shape': [1], 'data_offsets': [0, 4]}
+                             for name, dtype in (tensors or {
+                                 'model.language_model.layers.0.mlp.down_proj.weight_packed': 'I32',
+                                 'model.language_model.layers.0.mlp.down_proj.weight_scale': 'BF16',
+                                 'model.visual.blocks.0.attn.qkv.weight': 'BF16'}).items()}).encode()
+        (source / 'model.safetensors').write_bytes(struct.pack('<Q', len(header)) + header + b'\0' * 4)
+        env.pop('BF16_ROOT')
+        return {**env, 'MODEL_PROFILE': '4bit', 'QWEN_4BIT_ROOT': str(root), 'FAKE_CHECKPOINT': str(source),
+                'FAKE_HUB_SHA': PINNED_4BIT}
+
+    def test_4bit_profile_stages_pinned_int4_base_and_serves_qwen_4bit(self):
+        args_file = self.root / 'vllm-args.json'
+        env = self.four_bit_environment()
+        self.start(CHAT_ENABLED='true', CHAT_IMAGE_INPUT_ENABLED='true', MAX_NUM_SEQS='5',
+                   FAKE_ARG_FILE=str(args_file), **env)
+        health = json.loads(self.ready(self.chat_port, True, '/health'))
+        self.assertEqual(health['model'], 'qwen-4bit')
+        self.assertFalse(health['adapterToggleAvailable'])
+        self.assertEqual(health['imageInputVersion'], 1)
+        self.assertEqual([m['model'] for m in health['webSearch']['models']], ['qwen-4bit'])
+        self.assertEqual(health['limits']['contextTokens'], 40960)
+        self.assertEqual((health['admission']['maxConcurrentRequests'],
+                          health['admission']['maxWaitingRequests']), (5, 15))
+        args = json.loads(args_file.read_text())
+        self.assertEqual(args[0:2], ['serve', str(Path(env['QWEN_4BIT_ROOT']) / 'model')])
+        for key, value in [('--served-model-name', 'qwen-4bit'), ('--kv-cache-dtype', 'fp8'),
+                           ('--max-model-len', '40960'), ('--max-num-seqs', '5'),
+                           ('--reasoning-parser', 'qwen3')]:
+            self.assertEqual(args[args.index(key) + 1], value)
+        self.assertEqual(json.loads(args[args.index('--limit-mm-per-prompt') + 1]), {'image': 1, 'video': 0})
+        self.assertIn('--enable-prefix-caching', args)
+        for flag in ('--cpu-offload-gb', '--enable-lora', '--lora-modules', '--max-lora-rank', '--dtype'):
+            self.assertNotIn(flag, args)
+        state = json.loads((Path(env['QWEN_4BIT_ROOT']) / 'model-manifest.json').read_text())
+        self.assertTrue(state['complete'])
+        self.assertEqual(state['revision'], PINNED_4BIT)
+        self.assertEqual(state['quantization'], 'compressed-tensors W4A16')
+        request = Request(f'http://127.0.0.1:{self.chat_port}/v1/chat/completions', method='POST',
+                          data=json.dumps({'messages': [{'role': 'user', 'content': 'hi'}], 'stream': True,
+                                           'useAdapter': True}).encode(),
+                          headers={'Authorization': 'Bearer ' + self.token, 'Content-Type': 'application/json',
+                                   'X-Chat-User-ID': 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'})
+        with self.assertRaises(HTTPError) as rejected:
+            urlopen(request, timeout=5)
+        self.assertEqual(rejected.exception.code, 400)
+        self.assertIn(b'vllm:num_requests_running', self.ready(self.port, True))
+
+    def test_4bit_keeps_cpu_kv_offload_and_the_tool_parser(self):
+        guard = self.root / 'guard.py'
+        guard.write_text('pass\n')
+        launcher = self.root / 'start-server'
+        launcher.write_text(Path(self.launcher).read_text().replace('/usr/local/lib/kv-runtime-config.py', str(guard)))
+        launcher.chmod(0o755)
+        self.launcher = str(launcher)
+        args_file = self.root / 'feature-args.json'
+        self.start(METRICS_ENABLED='false', FAKE_ARG_FILE=str(args_file), KV_OFFLOAD_CPU_GIB='64',
+                   CUDA_DECODE_GRAPHS='true', CHAT_WEB_SEARCH_TOOL_PARSER='fixture-parser',
+                   **self.four_bit_environment())
+        self.ready(8000)
+        args = json.loads(args_file.read_text())
+        self.assertEqual(json.loads(args[args.index('--kv-transfer-config') + 1])['kv_connector'],
+                         'OffloadingConnector')
+        self.assertEqual(args[args.index('--kv-cache-dtype') + 1], 'fp8')
+        self.assertEqual(args[args.index('--tool-call-parser') + 1], 'fixture-parser')
+        self.assertIn('--compilation-config', args)
+        self.assertNotIn('--cpu-offload-gb', args)
+
+    def assert_refused(self, message, **settings):
+        args_file = self.root / 'forbidden-model-args.json'
+        self.start(FAKE_ARG_FILE=str(args_file), **settings)
+        output = self.process.communicate(timeout=30)[0]
+        self.assertNotEqual(self.process.returncode, 0, output)
+        self.assertIn(message, output)
+        self.assertFalse(args_file.exists(), 'A refused start must not invoke a GPU model')
+        self.closed(8000)
+        self.closed(self.port)
+        self.closed(self.chat_port)
+
+    def test_4bit_refuses_adapter_settings_and_cpu_weight_offload(self):
+        for key, value in (('LORA_ADAPTER_PATH', str(self.root)), ('VLLM_BASE_MODEL_NAME', 'qwen-4bit-base'),
+                           ('MAX_LORA_RANK', '8')):
+            with self.subTest(key):
+                self.assert_refused(key, CHAT_ENABLED='true', **{key: value}, **self.four_bit_environment())
+        with self.subTest('CPU_OFFLOAD_GB'):
+            self.assert_refused('CPU_OFFLOAD_GB', CPU_OFFLOAD_GB='10', **self.four_bit_environment())
+
+    def test_4bit_staging_refuses_unpinned_non_int4_and_vision_less_checkpoints(self):
+        cases = {'pinned revision': ({}, {'FAKE_HUB_SHA': 'd' * 40}),
+                 'not compressed-tensors W4A16': ({'quantization': {'quant_method': 'awq', 'bits': 4}}, {}),
+                 'no vision tower': ({'tensors': {'model.language_model.layers.0.weight_packed': 'I32'}}, {})}
+        for message, (checkpoint, overrides) in cases.items():
+            with self.subTest(message):
+                shutil.rmtree(self.root / 'qwen-4bit', ignore_errors=True)
+                shutil.rmtree(self.root / 'checkpoint-4bit', ignore_errors=True)
+                self.assert_refused(message, METRICS_ENABLED='false',
+                                    **{**self.four_bit_environment(**checkpoint), **overrides})
+
+    def test_4bit_refuses_to_start_without_the_flashinfer_jit_toolchain(self):
+        self.assert_refused('nvcc', CUDA_HOME=str(self.root / 'no-cuda'), **self.four_bit_environment())
 
     def test_bf16_refuses_an_unmounted_workspace(self):
         mountpoint = self.root / 'mountpoint'

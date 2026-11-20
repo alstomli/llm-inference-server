@@ -1,9 +1,9 @@
 # Qwen inference server on Runpod
 
-BF16 is the sole supported serving and deployment profile. The launcher and both
-gateways default to `MODEL_PROFILE=bf16` and the `qwen-bf16` serving alias;
-explicit unsupported profiles fail before model startup or deployment. The retired
-quantized checkpoint has no startup/download path or deployment workflow target.
+One image serves two profiles, selected by the Pod's `MODEL_PROFILE`: `bf16`
+(the default, alias `qwen-bf16`) and `4bit` (the 4-bit base, alias `qwen-4bit`; see
+[ADR 0001](docs/adr/0001-int4-w4a16-for-4bit-profile.md)). The launcher and both
+gateways reject any other profile before model startup.
 
 See the [BF16 image guide](deployments/qwen-bf16/VLLM-IMAGE.md),
 [dated runtime snapshot](deployments/qwen-bf16/CURRENT.md), and
@@ -60,6 +60,17 @@ The image starts the BF16 launcher automatically; do not override its entrypoint
 Attach the existing volume at `/workspace` and retain the pinned checkpoint under
 `BF16_ROOT/model` (`BF16_ROOT` defaults to `/workspace/qwen-bf16`). Model preparation
 validates and reuses the checkpoint. No community quantized checkpoint is downloaded.
+
+With `MODEL_PROFILE=4bit` the launcher stages `RedHatAI/Qwen3.8-27B-INT4` at the
+reviewed revision `71dface38d4cbfa34121f1d446d4a0fa1025f13c` under
+`QWEN_4BIT_ROOT/model` (default `/workspace/qwen-4bit`); staging refuses another
+revision, a checkpoint that is not compressed-tensors W4A16, or one without the vision
+tower. It serves `qwen-4bit` with `--kv-cache-dtype fp8`, no CPU weight offload, the
+same 40,960 context, vision, optional CPU KV offload and tool parser, and refuses
+`LORA_ADAPTER_PATH`, `VLLM_BASE_MODEL_NAME`, `MAX_LORA_RANK` and a non-zero
+`CPU_OFFLOAD_GB`. FlashInfer JIT-compiles its FP8-KV decode kernel on the RTX PRO 4500
+at first start, so the launcher requires `nvcc` under `CUDA_HOME` and `ninja` (the base
+image provides both). Caches stay on the container disk under `/opt/qwen-4bit`.
 
 Defaults are 40,960 context tokens and two sequences, with no batching collection
 window. BF16 uses bfloat16, eager execution/loading, and configurable CPU offloading

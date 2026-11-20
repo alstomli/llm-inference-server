@@ -32,8 +32,11 @@ type Gateway struct {
 }
 
 func New(c Config) (*Gateway, error) {
-	if c.ModelProfile != "bf16" {
-		return nil, errors.New("MODEL_PROFILE must be bf16")
+	if _, ok := profiles[c.ModelProfile]; !ok {
+		return nil, errProfile
+	}
+	if c.ModelProfile != "bf16" && c.BaseModel != "" {
+		return nil, errors.New("only the bf16 profile has an adapter")
 	}
 	if len([]rune(c.Token)) < 32 {
 		return nil, errors.New("a chat token of at least 32 characters is required")
@@ -403,7 +406,7 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if hasImage && s.adapter {
-		s.fail(400, "Turn off the BF16 adapter to attach an image.", "image_adapter", 0)
+		s.fail(400, "Turn off the "+profiles[g.cfg.ModelProfile].label+" adapter to attach an image.", "image_adapter", 0)
 		return
 	}
 	system := systemPrompt

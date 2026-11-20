@@ -12,7 +12,7 @@ func TestBF16DefaultsAndRejectedProfiles(t *testing.T) {
 	if defaults.ModelProfile != "bf16" || defaults.Model != "qwen-bf16" {
 		t.Fatalf("unexpected default model/profile: %q %q", defaults.Model, defaults.ModelProfile)
 	}
-	for _, profile := range []string{"4bit", "unknown", ""} {
+	for _, profile := range []string{"4BIT", "unknown", ""} {
 		t.Run(profile, func(t *testing.T) {
 			c := testConfig()
 			c.ModelProfile = profile
@@ -29,6 +29,59 @@ func TestBF16DefaultsAndRejectedProfiles(t *testing.T) {
 				t.Fatalf("profile must be rejected before reading tokens or starting services: %v", err)
 			}
 		})
+	}
+}
+
+func fourBitEnvironment(t *testing.T) {
+	t.Helper()
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte(strings.Repeat("t", 48)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"SERVED_MODEL_NAME", "LORA_ADAPTER_PATH", "VLLM_BASE_MODEL_NAME", "MAX_NUM_SEQS", "CHAT_MAX_CONCURRENT", "CHAT_MAX_WAITING"} {
+		t.Setenv(key, "")
+		os.Unsetenv(key)
+	}
+	t.Setenv("CHAT_TOKEN_FILE", tokenFile)
+	t.Setenv("MODEL_PROFILE", "4bit")
+	t.Setenv("CHAT_IMAGE_INPUT_ENABLED", "true")
+}
+
+func TestFourBitEnvironmentServesItsOwnAliasWithoutAdapter(t *testing.T) {
+	fourBitEnvironment(t)
+	t.Setenv("MAX_NUM_SEQS", "5")
+	c, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ModelProfile != "4bit" || c.Model != "qwen-4bit" || c.BaseModel != "" || !c.ImageInput {
+		t.Fatalf("4bit profile settings: %+v", c)
+	}
+	if c.Concurrency != 5 || c.QueueLimit != 15 {
+		t.Fatalf("4bit admission must follow its concurrency: %d active, %d waiting", c.Concurrency, c.QueueLimit)
+	}
+	g, err := New(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Close()
+}
+
+func TestFourBitRefusesAdapterSettings(t *testing.T) {
+	for _, key := range []string{"LORA_ADAPTER_PATH", "VLLM_BASE_MODEL_NAME"} {
+		t.Run(key, func(t *testing.T) {
+			fourBitEnvironment(t)
+			t.Setenv(key, "configured")
+			if _, err := ConfigFromEnv(); err == nil || !strings.Contains(err.Error(), "adapter") {
+				t.Fatalf("4bit must refuse %s: %v", key, err)
+			}
+		})
+	}
+	c := testConfig()
+	c.ModelProfile, c.Model, c.BaseModel = "4bit", "qwen-4bit", "qwen-4bit-base"
+	if g, err := New(c); err == nil {
+		g.Close()
+		t.Fatal("4bit gateway accepted an adapter base alias")
 	}
 }
 
