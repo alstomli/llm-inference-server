@@ -1,6 +1,5 @@
 """Offline tests for the deployment safety decisions."""
 import importlib.util
-from io import BytesIO
 import os
 from pathlib import Path
 import unittest
@@ -93,29 +92,45 @@ class DeploymentTests(unittest.TestCase):
             deploy.main()
         api.assert_not_called()
 
-    @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
-    @patch.object(deploy, 'urlopen', return_value=BytesIO(b'{"admission":{"maxConcurrentRequests":2,"maxWaitingRequests":6}}'))
-    @patch.object(deploy, 'summary')
-    @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1'}})
-    def test_success_requires_advertised_gateway_capacity(self, api, apply, summary, urlopen):
-        deploy.main()
-        self.assertEqual(apply.call_count, 1)
-        self.assertEqual(apply.call_args.kwargs['env'], {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '2'})
-        self.assertEqual(urlopen.call_args.args[0].get_header('User-agent'), 'qwen-chat-deployment-check/1.0')
-        self.assertIn('2 active requests', str(summary.call_args_list))
+    def deploy_with_live_check(self, environment):
+        """Run the deploy command against a fake Runpod API; return the PATCH body and checker argv."""
+        current = {'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1'}}
+        patched = {}
 
-    @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
-    @patch.object(deploy, 'urlopen', return_value=BytesIO(b'{"admission":{"maxConcurrentRequests":1,"maxWaitingRequests":6}}'))
+        def api(method, path, body=None):
+            if method == 'PATCH':
+                patched.update(body)
+                return {}
+            return {**current, **patched}
+
+        with patch.dict(os.environ, environment, clear=True), patch.object(deploy, 'api', side_effect=api), \
+                patch.object(deploy, 'check_transition'), patch.object(deploy, 'summary'), \
+                patch.object(deploy.subprocess, 'run') as run:
+            deploy.main()
+        return patched, run.call_args.args[0]
+
+    def test_any_concurrency_from_two_to_eight_is_applied_and_verified_by_the_live_check(self):
+        for sequences in ('2', '4', '5', '8'):
+            with self.subTest(sequences=sequences):
+                patched, checker = self.deploy_with_live_check({**ENV, 'DEPLOY_MAX_NUM_SEQS': sequences})
+                self.assertEqual(patched['env'], {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': sequences})
+                self.assertEqual(checker[checker.index('--expected-concurrency') + 1], sequences)
+
+    def test_image_only_deploy_keeps_concurrency_and_skips_its_live_check(self):
+        patched, checker = self.deploy_with_live_check(ENV)
+        self.assertNotIn('env', patched)
+        self.assertNotIn('--expected-concurrency', checker)
+
+    @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '4'}, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1'}})
-    def test_wrong_live_capacity_triggers_full_rollback(self, api, apply, summary, urlopen):
-        with self.assertRaises(RuntimeError):
-            deploy.main()
-        self.assertEqual(apply.call_count, 2)
-        self.assertEqual(apply.call_args_list[1].args[1], PREVIOUS)
-        self.assertEqual(apply.call_args_list[1].kwargs['env'], {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1'})
+    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {
+        'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '8', 'CHAT_MAX_CONCURRENT': '8',
+        'CHAT_MAX_WAITING': '24', 'CHAT_RATE_LIMIT_PER_MINUTE': '80'}})
+    def test_new_concurrency_drops_old_gateway_slot_overrides_but_keeps_rate_limit(self, api, apply, summary):
+        deploy.main()
+        self.assertEqual(apply.call_args.kwargs['env'], {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '4',
+                                                         'CHAT_RATE_LIMIT_PER_MINUTE': '80'})
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
     @patch.object(deploy, 'summary')
@@ -131,11 +146,13 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual([c.args[1] for c in apply.call_args_list], [IMAGE, PREVIOUS])
         self.assertNotIn('test-secret', str(summary.call_args_list))
 
-    @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '3'}, clear=True)
     @patch.object(deploy, 'api')
-    def test_invalid_concurrency_is_rejected_before_api(self, api):
-        with self.assertRaises(ValueError):
-            deploy.main()
+    def test_concurrency_outside_two_to_eight_is_rejected_before_api(self, api):
+        for sequences in ('1', '9', '0', '08', ' 4', 'x'):
+            with self.subTest(sequences=sequences), \
+                    patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': sequences}, clear=True), \
+                    self.assertRaises(ValueError):
+                deploy.main()
         api.assert_not_called()
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)

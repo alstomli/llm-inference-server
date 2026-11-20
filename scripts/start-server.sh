@@ -6,7 +6,9 @@ profile="${MODEL_PROFILE-bf16}"
 [[ "$profile" == bf16 ]] || { echo 'MODEL_PROFILE must be bf16.' >&2; exit 1; }
 export MODEL_PROFILE="$profile"
 export MAX_MODEL_LEN="${MAX_MODEL_LEN:-40960}"
-export MAX_NUM_SEQS="${MAX_NUM_SEQS:-2}"
+export MAX_NUM_SEQS="${MAX_NUM_SEQS-2}"
+# Every profile accepts any concurrency from 2 to 8.
+[[ "$MAX_NUM_SEQS" =~ ^[2-8]$ ]] || { echo 'MAX_NUM_SEQS must be an integer from 2 through 8.' >&2; exit 1; }
 export BF16_ROOT="${BF16_ROOT:-/workspace/qwen-bf16}"
 mountpoint -q /workspace || { echo '/workspace must be the attached persistent volume.' >&2; exit 1; }
 export MODEL_ID="$BF16_ROOT/model"
@@ -44,7 +46,7 @@ args=(serve "$MODEL_ID"
   --served-model-name "$base_model_name"
   --host "$host" --port "${VLLM_PORT:-8000}"
   --max-model-len "${MAX_MODEL_LEN:-40960}"
-  --max-num-seqs "${MAX_NUM_SEQS:-2}"
+  --max-num-seqs "$MAX_NUM_SEQS"
   --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION:-0.90}"
   --enable-prefix-caching
   --custom-histogram-buckets '{"time_to_first_token":[0.001,0.005,0.01,0.02,0.04,0.06,0.08,0.1,0.2,0.25,0.3,0.4,0.5,0.6,0.7,0.75,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0,2.1,2.2,2.3,2.4,2.5,2.6,2.7,2.8,2.9,3.0,3.1,3.2,3.3,3.4,3.5,3.6,3.7,3.8,3.9,4.0,4.1,4.2,4.3,4.4,4.5,4.6,4.7,4.8,4.9,5.0,5.1,5.2,5.3,5.4,5.5,5.6,5.7,5.8,5.9,6.0,6.1,6.2,6.3,6.4,6.5,6.6,6.7,6.8,6.9,7.0,7.1,7.2,7.3,7.4,7.5,7.6,7.7,7.8,7.9,8.0,8.1,8.2,8.3,8.4,8.5,8.6,8.7,8.8,8.9,9.0,9.1,9.2,9.3,9.4,9.5,9.6,9.7,9.8,9.9,10.0,20.0,40.0,80.0,160.0,640.0,2560.0]}'
@@ -67,11 +69,13 @@ case "${CUDA_DECODE_GRAPHS:-false}" in
     [[ "${CPU_OFFLOAD_GB:-40}" == 0 ]] || {
       echo 'Decode graphs require zero weight offload.' >&2; exit 1;
     }
-    case "$MAX_NUM_SEQS" in
-      2) capture_sizes='[1,2]' ;;
-      8) capture_sizes='[1,2,4,8]' ;;
-      *) echo 'Decode graphs require the supported two- or eight-sequence profile.' >&2; exit 1 ;;
-    esac
+    # Capture powers of two below the concurrency, then the concurrency itself;
+    # intermediate batch sizes pad to the next captured size.
+    capture_sizes=''
+    for (( size = 1; size < MAX_NUM_SEQS; size *= 2 )); do
+      capture_sizes+="$size,"
+    done
+    capture_sizes="[${capture_sizes}${MAX_NUM_SEQS}]"
     args+=(--compilation-config "{\"mode\":0,\"cudagraph_mode\":\"FULL_DECODE_ONLY\",\"cudagraph_capture_sizes\":$capture_sizes}" --cudagraph-metrics)
     ;;
   *) echo 'CUDA_DECODE_GRAPHS must be true or false.' >&2; exit 1 ;;

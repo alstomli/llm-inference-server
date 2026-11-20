@@ -232,12 +232,13 @@ def integer_setting(name, default):
 def capacity_from_env():
     integer = integer_setting
     engine = integer('MAX_NUM_SEQS', 2)
-    if not 1 <= engine <= 8:
-        raise ValueError('MAX_NUM_SEQS must be an integer from 1 through 8')
-    concurrency = integer('CHAT_MAX_CONCURRENT', min(2, engine))
+    if not 2 <= engine <= 8:
+        raise ValueError('MAX_NUM_SEQS must be an integer from 2 through 8')
+    # Admission follows the engine unless overridden: N active and 3N waiting.
+    concurrency = integer('CHAT_MAX_CONCURRENT', engine)
     if concurrency > engine:
         raise ValueError('CHAT_MAX_CONCURRENT cannot exceed MAX_NUM_SEQS')
-    return concurrency, integer('CHAT_MAX_WAITING', 6), integer('CHAT_RATE_LIMIT_PER_MINUTE', 20)
+    return concurrency, integer('CHAT_MAX_WAITING', 3 * concurrency), integer('CHAT_RATE_LIMIT_PER_MINUTE', 20)
 
 
 def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', context=40960, transport=None,

@@ -121,7 +121,7 @@ Quota rollout order: deploy this gateway temporarily with explicit `CHAT_REQUIRE
 
 The direct `scripts/check-chat-deployment.py` checker verifies strict quota capability before sending inference. It sends stable trusted service principal `00000000-0000-4000-8000-000000000001` by default; override using `--user-id` or `CHAT_CHECK_USER_ID` with a canonical UUID. This principal is a trusted bearer-holder smoke-check identity, shares the ordinary account budget across checker runs, and is not an anonymous bypass or a real end-user identity. Do not rotate IDs to evade the rate limit.
 
-For rollout, build a new immutable image release and set the Pod's `MAX_NUM_SEQS=2` explicitly; an existing override of `1` takes precedence over the new launcher default and keeps the gateway at one active request. Deploy the companion frontend for specific queue/rate/timeout messages. Existing hosting/proxy execution limits also bound how long a request can wait; on Vercel the chat route declares 300 seconds total, including waiting. Deployment/restart and live GPU validation require separate approval. Local HTTP tests use a fake model and do not establish GPU batching performance.
+For rollout, build a new immutable image release and set the Pod's `MAX_NUM_SEQS` explicitly to a value from 2 through 8; the launcher and gateway refuse to start with `1` or any other value outside that range, so remove an old `MAX_NUM_SEQS=1` override before deploying. Deploy the companion frontend for specific queue/rate/timeout messages. Existing hosting/proxy execution limits also bound how long a request can wait; on Vercel the chat route declares 300 seconds total, including waiting. Deployment/restart and live GPU validation require separate approval. Local HTTP tests use a fake model and do not establish GPU batching performance.
 
 ## Access securely
 
@@ -163,7 +163,7 @@ the chat and startup tests remain under `scripts/` and run in the inference imag
 
 - The manual test reported FlashInfer CUDA toolkit warnings and fallback sampling. Image CUDA compatibility and kernel behavior need validation on the GPU.
 - Model weights live on the network volume, but image dependencies live in the container image; backing up project files and long-lived data separately remains necessary.
-- The launcher now defaults to `MAX_NUM_SEQS=2`. The gateway defaults to two active requests and follows a lower `MAX_NUM_SEQS=1` override; explicit admission may be configured up to the engine ceiling of eight. Raising the engine setting alone does not raise gateway concurrency; explicitly configure the bounded chat capacity. Validate long-context KV-cache pressure, preemption, throughput and latency on the GPU; two simultaneous maximum-length requests are not guaranteed to fit.
+- The launcher defaults to `MAX_NUM_SEQS=2` and accepts 2 through 8, deriving decode-graph capture sizes from it. Without explicit chat overrides the gateway admits `MAX_NUM_SEQS` active and three times that many waiting requests; explicit admission may be set lower, but never above the engine setting. Validate long-context KV-cache pressure, preemption, throughput and latency on the GPU; two simultaneous maximum-length requests are not guaranteed to fit.
 
 ## Per-request chat limits
 

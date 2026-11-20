@@ -16,6 +16,8 @@ def main():
     parser.add_argument('--wait', type=int, default=0, help='Maximum readiness wait in seconds')
     parser.add_argument('--expected-model', default='qwen-bf16')
     parser.add_argument('--read-timeout', type=int, default=30)
+    parser.add_argument('--expected-concurrency', type=int, choices=range(2, 9), metavar='{2..8}',
+                        help='Also require N active and 3N waiting gateway admission slots')
     parser.add_argument('--user-id', default=os.environ.get('CHAT_CHECK_USER_ID', '00000000-0000-4000-8000-000000000001'),
                         help='Stable trusted smoke-check principal UUID (shares its normal account budget)')
     args = parser.parse_args()
@@ -63,6 +65,12 @@ def main():
     assert health['ready'] is True and health['model'] == args.expected_model
     assert health.get('accountQuotaVersion') == 1 and health.get('accountQuotasEnforced') is True, 'Gateway account quota enforcement is unavailable'
     print('PASS: The deployed model is ready with account quotas enforced.', flush=True)
+    if args.expected_concurrency is not None:
+        active = args.expected_concurrency
+        admission = health.get('admission', {})
+        assert admission.get('maxConcurrentRequests') == active and admission.get('maxWaitingRequests') == 3 * active, \
+            f'Gateway did not advertise {active} active and {3 * active} waiting slots'
+        print(f'PASS: The gateway advertises {active} active and {3 * active} waiting requests.', flush=True)
 
     payload = {
         'messages': [{'role': 'user', 'content': 'Reply with exactly: ready'}],

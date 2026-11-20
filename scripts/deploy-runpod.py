@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 IMAGE = re.compile(r'zihan000/qwen-inference@sha256:[0-9a-f]{64}\Z')
 POD = re.compile(r'[A-Za-z0-9_-]+\Z')
 SCRIPT = Path(__file__).with_name('check-chat-deployment.py')
+CONCURRENCIES = tuple(str(n) for n in range(2, 9))
 
 
 def api(method, path, body=None):
@@ -54,7 +55,7 @@ def check_transition(base, timeout=180):
     raise RuntimeError('Did not observe service interruption; cannot verify new container is serving')
 
 
-def deploy_image(path, image, base, env=None):
+def deploy_image(path, image, base, env=None, concurrency=None):
     # Runpod's update operation resets the Pod; do not separately restart it.
     update = {'imageName': image}
     if env is not None:
@@ -70,10 +71,11 @@ def deploy_image(path, image, base, env=None):
     else:
         raise RuntimeError('Runpod did not report the requested image/environment')
     wait = 3600
-    subprocess.run([sys.executable, str(SCRIPT), '--wait', str(wait),
-                    '--expected-model', 'qwen-bf16',
-                    '--read-timeout', '180'], check=True,
-                   timeout=wait + 900)
+    checker = [sys.executable, str(SCRIPT), '--wait', str(wait),
+             '--expected-model', 'qwen-bf16', '--read-timeout', '180']
+    if concurrency is not None:
+        checker += ['--expected-concurrency', str(concurrency)]
+    subprocess.run(checker, check=True, timeout=wait + 900)
 
 
 def deployment_target(env, profile='bf16'):
@@ -152,8 +154,8 @@ def main():
         raise ValueError('Invalid deployment profile or first-release setting')
     first_release = first == 'true'
     sequences = os.environ.get('DEPLOY_MAX_NUM_SEQS', '')
-    if sequences not in ('', '1', '2'):
-        raise ValueError('DEPLOY_MAX_NUM_SEQS must be empty, 1 or 2')
+    if sequences not in ('',) + CONCURRENCIES:
+        raise ValueError('DEPLOY_MAX_NUM_SEQS must be empty or an integer from 2 through 8')
     for name in ('RUNPOD_API_KEY', 'RUNPOD_BF16_CHAT_TOKEN'):
         if not os.environ.get(name):
             raise ValueError(f'Missing {name}')
@@ -176,7 +178,10 @@ def main():
         raise RuntimeError('Cannot safely preserve the current Pod environment')
     target_env = dict(previous_env) if changes_env else None
     if sequences:
+        # Gateway slots then follow the engine: N active and 3N waiting.
         target_env['MAX_NUM_SEQS'] = sequences
+        for key in ('CHAT_MAX_CONCURRENT', 'CHAT_MAX_WAITING'):
+            target_env.pop(key, None)
     if web_action != 'keep':
         target_env = web_environment(target_env, web_action, verified_alias, os.environ.get('TAVILY_API_KEY', ''))
     if image == previous and target_env == previous_env and not first_release:
@@ -187,17 +192,7 @@ def main():
     try:
         if changes_env:
             summary('Applying allowlisted deployment settings; preserving other environment variables. No credential values are recorded.')
-            deploy_image(path, image, base, env=target_env)
-            if sequences == '2':
-                request = Request(base + '/health', headers={
-                    'Authorization': 'Bearer ' + os.environ['RUNPOD_BF16_CHAT_TOKEN'],
-                    'User-Agent': 'qwen-chat-deployment-check/1.0',
-                })
-                with urlopen(request, timeout=15) as response:
-                    admission = json.load(response).get('admission', {})
-                if admission.get('maxConcurrentRequests') != 2 or admission.get('maxWaitingRequests') != 6:
-                    raise RuntimeError('Deployed gateway did not advertise two active and six waiting slots')
-                summary('Gateway advertises 2 active requests and 6 waiting requests.')
+            deploy_image(path, image, base, env=target_env, concurrency=int(sequences) if sequences else None)
         else:
             deploy_image(path, image, base)
         if web_action != 'keep':

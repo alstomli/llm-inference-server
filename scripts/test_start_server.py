@@ -245,12 +245,31 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.assertEqual(args[args.index('--max-lora-rank') + 1], '8')
         self.assertEqual(json.loads(args[args.index('--limit-mm-per-prompt') + 1]), {'image': 1, 'video': 0})
 
-    def test_unverified_graph_shapes_fail_closed(self):
-        self.start(CPU_OFFLOAD_GB='0', MAX_NUM_SEQS='3', CUDA_DECODE_GRAPHS='true')
-        output = self.process.communicate(timeout=10)[0]
-        self.assertEqual(self.process.returncode, 1)
-        self.assertIn('supported two- or eight-sequence profile', output)
-        self.closed(8000)
+    def test_every_concurrency_from_two_to_eight_derives_its_decode_capture_sizes(self):
+        expected = {2: [1, 2], 3: [1, 2, 3], 4: [1, 2, 4], 5: [1, 2, 4, 5],
+                    6: [1, 2, 4, 6], 7: [1, 2, 4, 7], 8: [1, 2, 4, 8]}
+        for sequences, captures in expected.items():
+            with self.subTest(sequences=sequences):
+                args_file = self.root / f'graph-{sequences}-args.json'
+                self.start(METRICS_ENABLED='false', FAKE_ARG_FILE=str(args_file), CPU_OFFLOAD_GB='0',
+                           MAX_NUM_SEQS=str(sequences), CUDA_DECODE_GRAPHS='true')
+                self.ready(8000)
+                args = json.loads(args_file.read_text())
+                self.process.terminate()
+                self.process.communicate(timeout=10)
+                self.assertEqual(args[args.index('--max-num-seqs') + 1], str(sequences))
+                self.assertEqual(json.loads(args[args.index('--compilation-config') + 1]),
+                                 {'mode': 0, 'cudagraph_mode': 'FULL_DECODE_ONLY', 'cudagraph_capture_sizes': captures})
+
+    def test_concurrency_outside_two_to_eight_refuses_start(self):
+        for graphs in ('false', 'true'):
+            for sequences in ('0', '1', '9', '08', ' 4', '4x', ''):
+                with self.subTest(graphs=graphs, sequences=sequences):
+                    self.start(CPU_OFFLOAD_GB='0', MAX_NUM_SEQS=sequences, CUDA_DECODE_GRAPHS=graphs)
+                    output = self.process.communicate(timeout=10)[0]
+                    self.assertEqual(self.process.returncode, 1)
+                    self.assertIn('MAX_NUM_SEQS must be an integer from 2 through 8', output)
+                    self.closed(8000)
 
     def test_invalid_native_capacity_fails_closed(self):
         self.start(KV_OFFLOAD_CPU_GIB='32')
@@ -293,14 +312,14 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.assertFalse(health['webSearchAvailable'])
         self.assertEqual(health['webSearch']['reason'], 'disabled')
 
-    def test_single_sequence_override_also_lowers_gateway_concurrency(self):
+    def test_concurrency_override_sets_gateway_active_and_three_times_waiting_slots(self):
         args_file = self.root / 'vllm-args.json'
-        self.start(METRICS_ENABLED='false', CHAT_ENABLED='true', MAX_NUM_SEQS='1', FAKE_ARG_FILE=str(args_file))
+        self.start(METRICS_ENABLED='false', CHAT_ENABLED='true', MAX_NUM_SEQS='4', FAKE_ARG_FILE=str(args_file))
         health = json.loads(self.ready(self.chat_port, True, '/health'))
         args = json.loads(args_file.read_text())
-        self.assertEqual(args[args.index('--max-num-seqs') + 1], '1')
-        self.assertEqual(health['admission']['maxConcurrentRequests'], 1)
-        self.assertEqual(health['admission']['maxWaitingRequests'], 6)
+        self.assertEqual(args[args.index('--max-num-seqs') + 1], '4')
+        self.assertEqual(health['admission']['maxConcurrentRequests'], 4)
+        self.assertEqual(health['admission']['maxWaitingRequests'], 12)
 
     def test_both_gateways_start_and_chat_failure_stops_every_service(self):
         self.start(CHAT_ENABLED='true')
@@ -388,15 +407,17 @@ def hf_hub_download(model_id, filename, revision, local_dir):
     def test_bf16_accepts_the_same_context_and_concurrency_overrides(self):
         args_file = self.root / 'vllm-args.json'
         self.start(CHAT_ENABLED='true', FAKE_ARG_FILE=str(args_file),
-                   MAX_MODEL_LEN='8192', MAX_NUM_SEQS='1', CPU_OFFLOAD_GB='45',
+                   MAX_MODEL_LEN='8192', MAX_NUM_SEQS='6', CPU_OFFLOAD_GB='45',
                    **self.bf16_environment())
         health = json.loads(self.ready(self.chat_port, True, '/health'))
         self.assertEqual(health['limits']['contextTokens'], 8192)
-        self.assertEqual(health['admission']['maxConcurrentRequests'], 1)
+        self.assertEqual(health['admission']['maxConcurrentRequests'], 6)
+        self.assertEqual(health['admission']['maxWaitingRequests'], 18)
         args = json.loads(args_file.read_text())
         self.assertEqual(args[args.index('--cpu-offload-gb') + 1], '45')
         self.assertEqual(args[args.index('--max-model-len') + 1], '8192')
-        self.assertEqual(args[args.index('--max-num-seqs') + 1], '1')
+        self.assertEqual(args[args.index('--max-num-seqs') + 1], '6')
+        self.assertIn('--enforce-eager', args)
 
     def lora_adapter(self, env):
         adapter = self.root / 'adapter with spaces'

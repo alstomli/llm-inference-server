@@ -18,8 +18,10 @@ mapped bytes round down to whole native chunks. Launch fails if the projected
 allocation would leave less than 32 GiB cgroup RAM or 8 GiB shared memory.
 
 Decode graphs use compilation mode zero, `FULL_DECODE_ONLY`, and capture
-sizes `[1,2]` for two sequences or `[1,2,4,8]` for eight sequences. Intermediate active sizes pad to the next captured bucket; eight is not a request to capture every size. They require zero CPU **weight** offload and the existing
-supported two- or eight-sequence profile. Eager prefill remains available through native dispatch.
+sizes derived from `MAX_NUM_SEQS` (2–8): the powers of two below it, then the
+concurrency itself, so two sequences capture `[1,2]`, six capture `[1,2,4,6]`
+and eight capture `[1,2,4,8]`. Intermediate active sizes pad to the next captured bucket; eight is not a request to capture every size. They require zero CPU **weight** offload; a
+concurrency outside 2–8 refuses startup. Eager prefill remains available through native dispatch.
 The settings do not override the GPU cache byte budget, batched-token budget,
 context length, LoRA/vision allocations, or gateway admission limits.
 

@@ -75,11 +75,15 @@ func ConfigFromEnv() (Config, error) {
 	}
 	engineRaw := envDefault("MAX_NUM_SEQS", "2")
 	engine, err := strconv.Atoi(engineRaw)
-	if err != nil || engine < 1 || engine > 8 || strings.IndexFunc(engineRaw, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
-		return c, errors.New("MAX_NUM_SEQS must be an integer from 1 through 8")
+	if err != nil || engine < 2 || engine > 8 || strings.IndexFunc(engineRaw, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return c, errors.New("MAX_NUM_SEQS must be an integer from 2 through 8")
 	}
+	// Admission follows the engine unless overridden: N active and 3N waiting.
 	if _, explicit := os.LookupEnv("CHAT_MAX_CONCURRENT"); !explicit {
-		c.Concurrency = min(2, engine)
+		c.Concurrency = engine
+	}
+	if _, explicit := os.LookupEnv("CHAT_MAX_WAITING"); !explicit {
+		c.QueueLimit = 3 * c.Concurrency
 	}
 	if c.Concurrency > engine {
 		return c, errors.New("CHAT_MAX_CONCURRENT cannot exceed MAX_NUM_SEQS")
