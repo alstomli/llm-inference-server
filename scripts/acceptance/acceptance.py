@@ -262,13 +262,18 @@ class Gateway:
         raise AssertionError('Bounded admission recovery')
 
 
+def adapter_choice(cfg, use_adapter):
+    """The useAdapter field, sent only to a profile with an adapter; others answer 400 to it."""
+    return {'useAdapter': use_adapter} if cfg.spec['adapter_alias'] else {}
+
+
 def payload(cfg, row):
     content = row['content']
     if row['vision']:
         content += ('\nFor this vision check, ignore the earlier arithmetic output instruction. '
                     'What solid color is the attached image? Reply with only the color name.')
     value = {'messages': [{'role': 'user', 'content': content}], 'max_tokens': row['max_tokens'],
-             'temperature': 0, 'stream': True, 'useAdapter': row['useAdapter'],
+             'temperature': 0, 'stream': True, **adapter_choice(cfg, row['useAdapter']),
              'settings': {'outputTokens': row['max_tokens'], 'contextTokens': cfg.context,
                           'safetyTokens': SAFETY_TOKENS, 'timeoutSeconds': MAX_WALL, 'reuseCachedPrefixes': False}}
     if row['vision']:
@@ -334,7 +339,7 @@ def queued_cancel(cfg, gw, principal):
     conn = None
     try:
         conn = gw.connect({'messages': [{'role': 'user', 'content': 'What is 2+2? Reply only 4.'}],
-                           'max_tokens': 128, 'temperature': 0, 'stream': True, 'useAdapter': False,
+                           'max_tokens': 128, 'temperature': 0, 'stream': True, **adapter_choice(cfg, False),
                            'settings': {'outputTokens': 128, 'timeoutSeconds': 20}}, principal)
         gw.wait_counts(cfg.concurrency, 1, timeout=4)
         gw.abort(conn)
@@ -349,11 +354,11 @@ def queued_cancel(cfg, gw, principal):
         gw.abort(conn)
 
 
-def active_cancel(gw):
+def active_cancel(cfg, gw):
     conn = None
     try:
         conn = gw.connect({'messages': [{'role': 'user', 'content': 'Count from 1 to 1000, one number per line.'}],
-                           'max_tokens': 2048, 'temperature': 0, 'stream': True, 'useAdapter': False,
+                           'max_tokens': 2048, 'temperature': 0, 'stream': True, **adapter_choice(cfg, False),
                            'settings': {'outputTokens': 2048, 'timeoutSeconds': 30}}, str(uuid.uuid4()))
         r = conn.getresponse()
         assert r.status == 200 and r.readline(4096), 'Active stream'
@@ -426,7 +431,7 @@ def run_wave(cfg, gw, bench, name, baseline):
     time.sleep(12)  # let published metrics settle before the idle check
     cmd_status(cfg, baseline, name + '-idle.private.json')
     if name == 'medium':
-        summary['active_cancellation'] = active_cancel(gw)
+        summary['active_cancellation'] = active_cancel(cfg, gw)
     save(cfg, name + '-summary.json', summary)
     print(json.dumps(summary), flush=True)
     return summary
@@ -437,7 +442,7 @@ def run_tool(cfg, gw, bench):
     started = time.monotonic()
     body = {'messages': [{'role': 'user', 'content': 'Search the web: what is the latest stable Python release? '
                                                       'Answer in one sentence and cite the source.'}],
-            'max_tokens': 512, 'temperature': 0, 'stream': True, 'useAdapter': False,
+            'max_tokens': 512, 'temperature': 0, 'stream': True, **adapter_choice(cfg, False),
             'webSearch': {'version': 1, 'mode': 'required'},
             'settings': {'outputTokens': 512, 'timeoutSeconds': MAX_WALL}}
     conn = gw.connect(body, str(uuid.uuid4()), deadline=started + MAX_WALL)

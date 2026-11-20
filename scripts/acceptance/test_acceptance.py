@@ -163,6 +163,20 @@ class ResponseTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             acc.check_headers(c, self.row(), self.headers('qwen-bf16-base'))
 
+    def test_4bit_requests_omit_use_adapter_which_its_gateway_rejects(self):
+        # The gateway answers 400 to any useAdapter field on a Pod without an adapter.
+        c = cfg('4bit', 4)
+        for row in (self.row(), self.row(vision=True)):
+            row['content'] = 'What is 2+2?'
+            self.assertNotIn('useAdapter', acc.payload(c, row))
+        self.assertEqual(acc.adapter_choice(c, False), {})
+
+    def test_bf16_requests_keep_the_adapter_choice(self):
+        c = cfg('bf16', 8)
+        row = {**self.row(adapter=True), 'content': 'What is 2+2?'}
+        self.assertIs(acc.payload(c, row)['useAdapter'], True)
+        self.assertEqual(acc.adapter_choice(c, False), {'useAdapter': False})
+
     def test_bf16_adapter_headers(self):
         c = cfg('bf16', 8)
         acc.check_headers(c, self.row(adapter=True), self.headers('qwen-bf16', adapter='true'))
