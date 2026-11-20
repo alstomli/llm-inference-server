@@ -68,7 +68,8 @@ def main():
     if args.expected_concurrency is not None:
         active = args.expected_concurrency
         admission = health.get('admission', {})
-        assert admission.get('maxConcurrentRequests') == active and admission.get('maxWaitingRequests') == 3 * active,             f'Gateway did not advertise {active} active and {3 * active} waiting slots'
+        assert admission.get('maxConcurrentRequests') == active and admission.get('maxWaitingRequests') == 3 * active, \
+            f'Gateway did not advertise {active} active and {3 * active} waiting slots'
         print(f'PASS: The gateway advertises {active} active and {3 * active} waiting requests.', flush=True)
 
     payload = {

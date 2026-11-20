@@ -92,17 +92,34 @@ class DeploymentTests(unittest.TestCase):
             deploy.main()
         api.assert_not_called()
 
-    @patch.object(deploy, 'summary')
-    @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1'}})
-    def test_any_concurrency_from_two_to_eight_is_applied_and_verified(self, api, apply, summary):
+    def deploy_with_live_check(self, environment):
+        """Run the deploy command against a fake Runpod API; return the PATCH body and checker argv."""
+        current = {'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1'}}
+        patched = {}
+
+        def api(method, path, body=None):
+            if method == 'PATCH':
+                patched.update(body)
+                return {}
+            return {**current, **patched}
+
+        with patch.dict(os.environ, environment, clear=True), patch.object(deploy, 'api', side_effect=api), \
+                patch.object(deploy, 'check_transition'), patch.object(deploy, 'summary'), \
+                patch.object(deploy.subprocess, 'run') as run:
+            deploy.main()
+        return patched, run.call_args.args[0]
+
+    def test_any_concurrency_from_two_to_eight_is_applied_and_verified_by_the_live_check(self):
         for sequences in ('2', '4', '5', '8'):
-            apply.reset_mock()
-            with self.subTest(sequences=sequences),                     patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': sequences}, clear=True):
-                deploy.main()
-                self.assertEqual(apply.call_count, 1)
-                self.assertEqual(apply.call_args.kwargs['env'], {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': sequences})
-                self.assertEqual(apply.call_args.kwargs['concurrency'], int(sequences))
+            with self.subTest(sequences=sequences):
+                patched, checker = self.deploy_with_live_check({**ENV, 'DEPLOY_MAX_NUM_SEQS': sequences})
+                self.assertEqual(patched['env'], {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': sequences})
+                self.assertEqual(checker[checker.index('--expected-concurrency') + 1], sequences)
+
+    def test_image_only_deploy_keeps_concurrency_and_skips_its_live_check(self):
+        patched, checker = self.deploy_with_live_check(ENV)
+        self.assertNotIn('env', patched)
+        self.assertNotIn('--expected-concurrency', checker)
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '4'}, clear=True)
     @patch.object(deploy, 'summary')
@@ -114,19 +131,6 @@ class DeploymentTests(unittest.TestCase):
         deploy.main()
         self.assertEqual(apply.call_args.kwargs['env'], {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '4',
                                                          'CHAT_RATE_LIMIT_PER_MINUTE': '80'})
-
-    @patch.dict(os.environ, {'DEPLOY_MODEL_PROFILE': 'bf16'}, clear=True)
-    @patch.object(deploy.subprocess, 'run')
-    @patch.object(deploy, 'check_transition')
-    @patch.object(deploy, 'api')
-    def test_live_check_verifies_concurrency_only_when_requested(self, api, transition, run):
-        api.side_effect = [{}, {'imageName': IMAGE, 'env': {'MAX_NUM_SEQS': '6'}}]
-        deploy.deploy_image('/pods/bf16pod', IMAGE, 'https://bf16.invalid', env={'MAX_NUM_SEQS': '6'}, concurrency=6)
-        args = run.call_args.args[0]
-        self.assertEqual(args[args.index('--expected-concurrency') + 1], '6')
-        api.side_effect = [{}, {'imageName': IMAGE}]
-        deploy.deploy_image('/pods/bf16pod', IMAGE, 'https://bf16.invalid')
-        self.assertNotIn('--expected-concurrency', run.call_args.args[0])
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
     @patch.object(deploy, 'summary')
@@ -145,7 +149,9 @@ class DeploymentTests(unittest.TestCase):
     @patch.object(deploy, 'api')
     def test_concurrency_outside_two_to_eight_is_rejected_before_api(self, api):
         for sequences in ('1', '9', '0', '08', ' 4', 'x'):
-            with self.subTest(sequences=sequences),                     patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': sequences}, clear=True),                     self.assertRaises(ValueError):
+            with self.subTest(sequences=sequences), \
+                    patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': sequences}, clear=True), \
+                    self.assertRaises(ValueError):
                 deploy.main()
         api.assert_not_called()
 

@@ -71,11 +71,11 @@ def deploy_image(path, image, base, env=None, concurrency=None):
     else:
         raise RuntimeError('Runpod did not report the requested image/environment')
     wait = 3600
-    check = [sys.executable, str(SCRIPT), '--wait', str(wait),
+    checker = [sys.executable, str(SCRIPT), '--wait', str(wait),
              '--expected-model', 'qwen-bf16', '--read-timeout', '180']
     if concurrency is not None:
-        check += ['--expected-concurrency', str(concurrency)]
-    subprocess.run(check, check=True, timeout=wait + 900)
+        checker += ['--expected-concurrency', str(concurrency)]
+    subprocess.run(checker, check=True, timeout=wait + 900)
 
 
 def deployment_target(env, profile='bf16'):
