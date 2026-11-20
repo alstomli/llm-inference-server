@@ -361,6 +361,123 @@ class DeploymentTests(unittest.TestCase):
         apply.assert_not_called()
 
 
+    @patch.object(deploy.subprocess, 'run')
+    @patch.object(deploy, 'check_transition')
+    @patch.object(deploy, 'api')
+    def test_runpod_managed_ssh_key_is_left_out_of_the_comparison(self, api, transition, run):
+        # Runpod rewrites PUBLIC_KEY itself, so a requested value need not come back.
+        api.side_effect = [{}, {'image': IMAGE, 'env': {'MAX_NUM_SEQS': '2', 'PUBLIC_KEY': 'ssh-ed25519 other'}}]
+        deploy.deploy_image('/pods/testpod', IMAGE, 'https://test.invalid',
+                            env={'MAX_NUM_SEQS': '2', 'PUBLIC_KEY': 'ssh-ed25519 sent'})
+        run.assert_called_once()
+
+
+POD_A = {'image': PREVIOUS, 'status': 'RUNNING', 'env': {
+    'MODEL_PROFILE': '4bit', 'MAX_NUM_SEQS': '6', 'TAVILY_API_KEY': 'fixture-provider-key',
+    'JUPYTER_PASSWORD': 'source-secret', 'PUBLIC_KEY': 'ssh-ed25519 source'}}
+
+
+@patch.dict(os.environ, {'RUNPOD_API_KEY': 'test-api'}, clear=True)
+@patch.object(deploy, 'summary')
+class PodCommandTests(unittest.TestCase):
+    def setUp(self):
+        network = patch.object(deploy, 'urlopen', side_effect=AssertionError('Unmocked network request'))
+        network.start()
+        self.addCleanup(network.stop)
+
+    @patch.object(deploy, 'deploy_image')
+    @patch.object(deploy, 'api')
+    def test_set_env_adds_settings_keeps_the_rest_and_checks_the_profile_concurrency(self, api, apply, summary):
+        api.return_value = POD_A
+        deploy.cli(['set-env', '--profile', '4bit', 'podb', 'METRICS_ENABLED=true', 'METRICS_PORT=8889'])
+        args, kwargs = apply.call_args
+        self.assertEqual(args[:3], ('/pods/podb', PREVIOUS, 'https://podb-8001.proxy.runpod.net'))
+        self.assertEqual(kwargs['env'], {'MODEL_PROFILE': '4bit', 'MAX_NUM_SEQS': '6',
+                                         'TAVILY_API_KEY': 'fixture-provider-key',
+                                         'JUPYTER_PASSWORD': 'source-secret',
+                                         'METRICS_ENABLED': 'true', 'METRICS_PORT': '8889'})
+        self.assertEqual((kwargs['profile'], kwargs['concurrency']), ('4bit', 6))
+        self.assertNotIn('fixture-provider-key', str(summary.call_args_list))
+
+    @patch.object(deploy, 'deploy_image')
+    @patch.object(deploy, 'api', return_value=POD_A)
+    def test_set_env_refuses_bad_assignments_runpod_keys_and_the_wrong_profile(self, api, apply, summary):
+        for argv in (['--profile', '4bit', 'podb', 'lower=x'], ['--profile', '4bit', 'podb', 'NOEQUALS'],
+                     ['--profile', '4bit', 'podb', 'PUBLIC_KEY=x'], ['--profile', 'bf16', 'podb', 'A=1']):
+            with self.subTest(argv=argv), self.assertRaises((ValueError, RuntimeError)):
+                deploy.cli(['set-env', *argv])
+        apply.assert_not_called()
+
+    @patch.object(deploy, 'deploy_image')
+    @patch.object(deploy, 'api')
+    def test_set_env_failure_restores_the_previous_settings(self, api, apply, summary):
+        api.return_value = POD_A
+        apply.side_effect = [RuntimeError('failed'), None]
+        with self.assertRaises(RuntimeError):
+            deploy.cli(['set-env', '--profile', '4bit', 'podb', 'METRICS_ENABLED=true'])
+        restored = apply.call_args_list[1]
+        self.assertEqual(restored.args[1], PREVIOUS)
+        self.assertNotIn('PUBLIC_KEY', restored.kwargs['env'])
+        self.assertEqual(restored.kwargs['env']['TAVILY_API_KEY'], 'fixture-provider-key')
+
+    @patch.object(deploy, 'deploy_image')
+    @patch.object(deploy, 'api')
+    def test_copy_env_copies_image_and_settings_but_keeps_the_targets_own(self, api, apply, summary):
+        target = {'image': IMAGE, 'status': 'RUNNING',
+                  'env': {'JUPYTER_PASSWORD': 'target-secret', 'PUBLIC_KEY': 'ssh-ed25519 target'}}
+        api.side_effect = lambda method, path, body=None: POD_A if path == '/pods/poda' else target
+        deploy.cli(['copy-env', '--profile', '4bit', 'poda', 'podb'])
+        args, kwargs = apply.call_args
+        self.assertEqual(args[:3], ('/pods/podb', PREVIOUS, 'https://podb-8001.proxy.runpod.net'))
+        self.assertEqual(kwargs['env'], {'MODEL_PROFILE': '4bit', 'MAX_NUM_SEQS': '6',
+                                         'TAVILY_API_KEY': 'fixture-provider-key',
+                                         'JUPYTER_PASSWORD': 'target-secret'})
+        self.assertNotIn('fixture-provider-key', str(summary.call_args_list))
+        self.assertNotIn('target-secret', str(summary.call_args_list))
+
+    @patch.object(deploy, 'deploy_image')
+    @patch.object(deploy, 'api', return_value=POD_A)
+    def test_copy_env_refuses_one_pod_and_a_source_of_another_profile(self, api, apply, summary):
+        for argv in (['--profile', '4bit', 'poda', 'poda'], ['--profile', 'bf16', 'poda', 'podb']):
+            with self.subTest(argv=argv), self.assertRaises((ValueError, RuntimeError)):
+                deploy.cli(['copy-env', *argv])
+        apply.assert_not_called()
+
+    @patch.object(deploy.time, 'sleep')
+    @patch.object(deploy, 'api')
+    def test_stop_requests_the_stop_action_and_waits_for_exited(self, api, sleep, summary):
+        api.side_effect = [{'status': 'RUNNING'}, {}, {'status': 'RUNNING'}, {'status': 'EXITED'}]
+        deploy.cli(['stop', 'poda'])
+        self.assertEqual(api.call_args_list[1].args, ('POST', '/pods/poda/action', {'action': 'stop'}))
+        self.assertEqual(api.call_count, 4)
+
+    @patch.object(deploy, 'api', return_value={'status': 'EXITED'})
+    def test_stop_leaves_a_stopped_pod_alone(self, api, summary):
+        deploy.cli(['stop', 'poda'])
+        api.assert_called_once_with('GET', '/pods/poda')
+
+    @patch.object(deploy, 'api')
+    def test_invalid_pod_ids_fail_before_any_pod_api(self, api, summary):
+        for argv in (['stop', '../x'], ['set-env', '--profile', '4bit', 'a/b', 'A=1'],
+                     ['copy-env', '--profile', '4bit', 'ok', 'bad id']):
+            with self.subTest(argv=argv), self.assertRaises(ValueError):
+                deploy.cli(argv)
+        api.assert_not_called()
+
+
+class LegacyEntryTests(unittest.TestCase):
+    @patch.object(deploy, 'main')
+    def test_no_arguments_still_runs_the_workflow_deploy(self, main):
+        deploy.cli([])
+        main.assert_called_once_with()
+
+
+class DeploymentTargetTests(unittest.TestCase):
+    def setUp(self):
+        network = patch.object(deploy, 'urlopen', side_effect=AssertionError('Unmocked network request'))
+        network.start()
+        self.addCleanup(network.stop)
+
     def test_bf16_target_never_falls_back_to_generic_connection(self):
         legacy = {'RUNPOD_POD_ID': 'retiredpod', 'RUNPOD_CHAT_TOKEN': 'retired-token'}
         for values in (legacy, {**legacy, 'RUNPOD_BF16_POD_ID': 'bf16pod'},
