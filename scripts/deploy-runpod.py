@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -13,6 +14,24 @@ IMAGE = re.compile(r'zihan000/qwen-inference@sha256:[0-9a-f]{64}\Z')
 POD = re.compile(r'[A-Za-z0-9_-]+\Z')
 SCRIPT = Path(__file__).with_name('check-chat-deployment.py')
 CONCURRENCIES = tuple(str(n) for n in range(2, 9))
+
+
+class Profile(NamedTuple):
+    settings: str  # prefix of the per-profile Pod ID, chat URL and chat token settings
+    alias: str  # the gateway's model: base-plus-adapter on bf16, the base on 4bit
+    base_alias: str | None  # the separate base alias; None when the profile has no adapter
+    label: str
+
+    @property
+    def web_aliases(self):
+        """Web-search enable action -> the alias it verifies; one web-search model per alias."""
+        if self.base_alias is None:
+            return {'enable-base': self.alias}
+        return {'enable-base': self.base_alias, 'enable-adapter': self.alias}
+
+
+PROFILES = {'bf16': Profile('RUNPOD_BF16', 'qwen-bf16', 'qwen-bf16-base', 'BF16'),
+            '4bit': Profile('RUNPOD_4BIT', 'qwen-4bit', None, '4-bit')}
 
 
 def api(method, path, body=None):
@@ -55,7 +74,7 @@ def check_transition(base, timeout=180):
     raise RuntimeError('Did not observe service interruption; cannot verify new container is serving')
 
 
-def deploy_image(path, image, base, env=None, concurrency=None):
+def deploy_image(path, image, base, env=None, concurrency=None, profile='bf16'):
     # Runpod's update operation resets the Pod; do not separately restart it.
     update = {'imageName': image}
     if env is not None:
@@ -71,28 +90,33 @@ def deploy_image(path, image, base, env=None, concurrency=None):
     else:
         raise RuntimeError('Runpod did not report the requested image/environment')
     wait = 3600
-    checker = [sys.executable, str(SCRIPT), '--wait', str(wait),
-             '--expected-model', 'qwen-bf16', '--read-timeout', '180']
+    checker = [sys.executable, str(SCRIPT), '--wait', str(wait), '--profile', profile,
+               '--expected-model', PROFILES[profile].alias, '--read-timeout', '180']
     if concurrency is not None:
         checker += ['--expected-concurrency', str(concurrency)]
     subprocess.run(checker, check=True, timeout=wait + 900)
 
 
 def deployment_target(env, profile='bf16'):
-    if profile != 'bf16':
-        raise ValueError('Only the bf16 deployment profile is supported')
-    pod = env.get('RUNPOD_BF16_POD_ID', '')
-    token = env.get('RUNPOD_BF16_CHAT_TOKEN', '')
+    if profile not in PROFILES:
+        raise ValueError('The deployment profile must be bf16 or 4bit')
+    settings = PROFILES[profile].settings
+    pod = env.get(settings + '_POD_ID', '')
+    token = env.get(settings + '_CHAT_TOKEN', '')
     if not pod or not token:
-        raise ValueError('Configure RUNPOD_BF16_POD_ID and RUNPOD_BF16_CHAT_TOKEN for this environment')
+        raise ValueError(f'Configure {settings}_POD_ID and {settings}_CHAT_TOKEN for this environment')
+    if env.get('RUNPOD_BF16_POD_ID') == env.get('RUNPOD_4BIT_POD_ID'):
+        raise ValueError('The BF16 and 4-bit profiles must use different Pods')
     return pod, token
 
 
-def web_environment(current, action, verified_alias, key):
+def web_environment(current, action, verified_alias, key, profile='bf16'):
     """Only these named operations may change the server-owned web settings."""
     target = dict(current)
-    if current.get('MODEL_PROFILE') != 'bf16' or current.get('SERVED_MODEL_NAME') != 'qwen-bf16' or current.get('VLLM_BASE_MODEL_NAME') != 'qwen-bf16-base':
-        raise ValueError('Web configuration requires the existing BF16 base/adapter aliases')
+    expected = PROFILES[profile]
+    base_names = (expected.base_alias,) if expected.base_alias else (None, expected.alias)
+    if current.get('MODEL_PROFILE') != profile or current.get('SERVED_MODEL_NAME') != expected.alias or current.get('VLLM_BASE_MODEL_NAME') not in base_names:
+        raise ValueError(f'Web configuration requires the existing {expected.label} aliases')
     if current.get('CHAT_GATEWAY_IMPLEMENTATION', 'go') != 'go':
         raise ValueError('Web configuration requires the Go gateway')
     if action == 'disable':
@@ -106,8 +130,8 @@ def web_environment(current, action, verified_alias, key):
             raise ValueError('Parser staging must not assert a verified alias')
         target.update(CHAT_WEB_SEARCH_ENABLED='false', CHAT_WEB_SEARCH_MODEL_VERIFIED='false', CHAT_WEB_SEARCH_VERIFIED_MODEL='')
     elif action in ('enable-base', 'enable-adapter'):
-        alias = 'qwen-bf16-base' if action == 'enable-base' else 'qwen-bf16'
-        if verified_alias != alias:
+        alias = expected.web_aliases.get(action)
+        if alias is None or verified_alias != alias:
             raise ValueError('Enable requires the exact independently verified alias')
         if current.get('CHAT_WEB_SEARCH_TOOL_PARSER') != 'qwen3_xml' or not current.get('TAVILY_API_KEY'):
             raise ValueError('Stage the private parser and provider key before enabling web search')
@@ -117,13 +141,14 @@ def web_environment(current, action, verified_alias, key):
     return target
 
 
-def check_web_capability(base, action, environment):
-    request = Request(base + '/health', headers={'Authorization': 'Bearer ' + os.environ['RUNPOD_BF16_CHAT_TOKEN'], 'User-Agent': 'qwen-web-deployment-check/1.0'})
+def check_web_capability(base, action, environment, profile='bf16'):
+    expected = PROFILES[profile]
+    request = Request(base + '/health', headers={'Authorization': 'Bearer ' + os.environ[expected.settings + '_CHAT_TOKEN'], 'User-Agent': 'qwen-web-deployment-check/1.0'})
     with urlopen(request, timeout=15) as response:
         health = json.load(response)
     web = health.get('webSearch', {})
     profiles = web.get('models', [])
-    if health.get('webSearchVersion') != 1 or len(profiles) != 2:
+    if health.get('webSearchVersion') != 1 or len(profiles) != len(expected.web_aliases):
         raise RuntimeError('Versioned web profile capability unavailable')
     if action in ('stage', 'disable'):
         if web.get('reason') != 'disabled' or any(profile.get('available') for profile in profiles):
@@ -146,7 +171,10 @@ def main():
         raise ValueError('Invalid web action or target profile')
     if web_action == 'keep' and verified_alias:
         raise ValueError('Unchanged web settings must not assert a verified alias')
-    os.environ['RUNPOD_BF16_CHAT_TOKEN'] = chat_token
+    if web_action.startswith('enable-') and PROFILES[profile].web_aliases.get(web_action) != verified_alias:
+        raise ValueError(f'{web_action} on the {profile} profile requires its exact independently verified alias')
+    settings, label = PROFILES[profile].settings, PROFILES[profile].label
+    os.environ[settings + '_CHAT_TOKEN'] = chat_token
     if not POD.fullmatch(pod) or not IMAGE.fullmatch(image):
         raise ValueError('Invalid Pod ID or image digest')
     first = os.environ.get('DEPLOY_FIRST_OFFICIAL_RELEASE', 'false')
@@ -156,11 +184,10 @@ def main():
     sequences = os.environ.get('DEPLOY_MAX_NUM_SEQS', '')
     if sequences not in ('',) + CONCURRENCIES:
         raise ValueError('DEPLOY_MAX_NUM_SEQS must be empty or an integer from 2 through 8')
-    for name in ('RUNPOD_API_KEY', 'RUNPOD_BF16_CHAT_TOKEN'):
-        if not os.environ.get(name):
-            raise ValueError(f'Missing {name}')
+    if not os.environ.get('RUNPOD_API_KEY'):
+        raise ValueError('Missing RUNPOD_API_KEY')
     base = f'https://{pod}-8001.proxy.runpod.net'
-    os.environ['RUNPOD_BF16_CHAT_URL'] = base
+    os.environ[settings + '_CHAT_URL'] = base
     path = '/pods/' + pod
     current = api('GET', path)
     previous = current.get('imageName')
@@ -168,10 +195,10 @@ def main():
         raise RuntimeError('Cannot safely determine the previous image')
     if current.get('desiredStatus') != 'RUNNING':
         raise RuntimeError('Pod must be running before deployment')
-    if current.get('env', {}).get('MODEL_PROFILE') != 'bf16':
-        raise RuntimeError('Complete the one-time BF16 Pod profile/entrypoint/ports migration first')
+    if current.get('env', {}).get('MODEL_PROFILE') != profile:
+        raise RuntimeError(f'The {label} Pod must have MODEL_PROFILE={profile}; complete its one-time profile/entrypoint/ports setup first')
     if not first_release and not IMAGE.fullmatch(previous):
-        raise RuntimeError('No previous official BF16 image; use first official release mode')
+        raise RuntimeError(f'No previous official {label} image; use first official release mode')
     changes_env = bool(sequences or web_action != 'keep')
     previous_env = current.get('env') if changes_env else None
     if changes_env and (not isinstance(previous_env, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in previous_env.items())):
@@ -183,7 +210,7 @@ def main():
         for key in ('CHAT_MAX_CONCURRENT', 'CHAT_MAX_WAITING'):
             target_env.pop(key, None)
     if web_action != 'keep':
-        target_env = web_environment(target_env, web_action, verified_alias, os.environ.get('TAVILY_API_KEY', ''))
+        target_env = web_environment(target_env, web_action, verified_alias, os.environ.get('TAVILY_API_KEY', ''), profile)
     if image == previous and target_env == previous_env and not first_release:
         raise RuntimeError('Requested image is already configured')
     summary(f'Pod: `{pod}`; previous image: `{previous}`; requested image: `{image}`; commit: `{os.environ.get("GITHUB_SHA", "local")}`')
@@ -192,27 +219,27 @@ def main():
     try:
         if changes_env:
             summary('Applying allowlisted deployment settings; preserving other environment variables. No credential values are recorded.')
-            deploy_image(path, image, base, env=target_env, concurrency=int(sequences) if sequences else None)
+            deploy_image(path, image, base, env=target_env, concurrency=int(sequences) if sequences else None, profile=profile)
         else:
-            deploy_image(path, image, base)
+            deploy_image(path, image, base, profile=profile)
         if web_action != 'keep':
-            check_web_capability(base, web_action, target_env)
+            check_web_capability(base, web_action, target_env, profile)
             summary(f'Web configuration action `{web_action}` passed its profile capability checks.')
     except Exception as failure:
         if first_release:
-            summary('First official BF16 deployment failed; no previous official BF16 release exists. Diagnose the migration and retry in first-release mode; no automatic legacy rollback was attempted.')
-            raise RuntimeError('First official BF16 deployment failed') from failure
+            summary(f'First official {label} deployment failed; no previous official {label} release exists. Diagnose the migration and retry in first-release mode; no automatic legacy rollback was attempted.')
+            raise RuntimeError(f'First official {label} deployment failed') from failure
         summary(f'Deployment failed ({type(failure).__name__}); attempting to restore previous image.')
         try:
             if changes_env:
-                deploy_image(path, previous, base, env=previous_env)
+                deploy_image(path, previous, base, env=previous_env, profile=profile)
             else:
-                deploy_image(path, previous, base)
+                deploy_image(path, previous, base, profile=profile)
             summary('Rollback passed the live chat checks.')
         except Exception as rollback:
             summary(f'ROLLBACK FAILED ({type(rollback).__name__}): inspect the Pod immediately. Previous image: `{previous}`')
         raise RuntimeError('Deployment failed; inspect workflow logs and rollback status') from failure
-    summary('First official BF16 release passed the live chat checks.' if first_release else 'Deployment passed the live chat checks.')
+    summary(f'First official {label} release passed the live chat checks.' if first_release else 'Deployment passed the live chat checks.')
 
 
 if __name__ == '__main__':

@@ -6,6 +6,11 @@ on:
         description: 'GitHub environment containing the intended Pod configuration'
         type: environment
         required: true
+      profile:
+        description: 'Serving profile to deploy; only that profile''s Pod is touched'
+        type: choice
+        options: [bf16, 4bit]
+        default: bf16
       image:
         description: 'Image digest: zihan000/qwen-inference@sha256:...'
         type: string
@@ -22,7 +27,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: runpod-inference-${{ inputs.target }}
+  group: runpod-inference-${{ inputs.target }}-${{ inputs.profile }}
   cancel-in-progress: false
 jobs:
   deploy:
@@ -35,10 +40,13 @@ jobs:
       - name: Deploy and verify, restoring the previous image on failure
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
-          RUNPOD_BF16_CHAT_TOKEN: ${{ secrets.RUNPOD_BF16_CHAT_TOKEN }}
+          # Both Pod IDs are passed so the deploy refuses when they are equal; only the chosen profile's token is.
           RUNPOD_BF16_POD_ID: ${{ vars.RUNPOD_BF16_POD_ID }}
+          RUNPOD_4BIT_POD_ID: ${{ vars.RUNPOD_4BIT_POD_ID }}
+          RUNPOD_BF16_CHAT_TOKEN: ${{ inputs.profile == 'bf16' && secrets.RUNPOD_BF16_CHAT_TOKEN || '' }}
+          RUNPOD_4BIT_CHAT_TOKEN: ${{ inputs.profile == '4bit' && secrets.RUNPOD_4BIT_CHAT_TOKEN || '' }}
           DEPLOY_IMAGE: ${{ inputs.image }}
-          DEPLOY_MODEL_PROFILE: bf16
+          DEPLOY_MODEL_PROFILE: ${{ inputs.profile }}
           DEPLOY_WEB_SEARCH_ACTION: ${{ inputs.web_search_action || 'keep' }}
           DEPLOY_WEB_SEARCH_VERIFIED_ALIAS: ${{ inputs.verified_model_alias }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
@@ -47,12 +55,13 @@ jobs:
         continue-on-error: true
         env:
           RUNPOD_METRICS_TOKEN: ${{ secrets.RUNPOD_METRICS_TOKEN }}
-          RUNPOD_BF16_POD_ID: ${{ vars.RUNPOD_BF16_POD_ID }}
+          PROFILE: ${{ inputs.profile }}
+          DEPLOYED_POD_ID: ${{ inputs.profile == '4bit' && vars.RUNPOD_4BIT_POD_ID || vars.RUNPOD_BF16_POD_ID }}
         run: |
-          [[ -n "$RUNPOD_BF16_POD_ID" ]] || { echo "BF16 Pod is not configured."; exit 1; }
+          [[ -n "$DEPLOYED_POD_ID" ]] || { echo "The $PROFILE Pod is not configured."; exit 1; }
           if [[ -z "$RUNPOD_METRICS_TOKEN" ]]; then
             echo 'Metrics token not configured; metrics check skipped.' >> "$GITHUB_STEP_SUMMARY"
-          elif ! RUNPOD_METRICS_URL="https://${RUNPOD_BF16_POD_ID}-8889.proxy.runpod.net" python scripts/check-monitoring.py; then
+          elif ! RUNPOD_METRICS_URL="https://${DEPLOYED_POD_ID}-8889.proxy.runpod.net" python scripts/check-monitoring.py; then
             echo 'Metrics check failed; inspect monitoring separately. Deployment was not rolled back.' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           else

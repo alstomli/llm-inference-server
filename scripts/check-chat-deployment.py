@@ -9,12 +9,16 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
+# Profile -> (prefix of its chat URL and token settings, its default alias, its web-search model count).
+PROFILES = {'bf16': ('RUNPOD_BF16', 'qwen-bf16', 2), '4bit': ('RUNPOD_4BIT', 'qwen-4bit', 1)}
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--wait', type=int, default=0, help='Maximum readiness wait in seconds')
-    parser.add_argument('--expected-model', default='qwen-bf16')
+    parser.add_argument('--profile', choices=PROFILES, default='bf16',
+                        help="Check this profile's gateway using its own URL and token settings")
+    parser.add_argument('--expected-model', help="Alias the gateway must report (default: the profile's alias)")
     parser.add_argument('--read-timeout', type=int, default=30)
     parser.add_argument('--expected-concurrency', type=int, choices=range(2, 9), metavar='{2..8}',
                         help='Also require N active and 3N waiting gateway admission slots')
@@ -28,10 +32,12 @@ def main():
         parser.error('read-timeout must be between 1 and 900 seconds')
     local_env = ROOT.parent / 'qwen-chat/.env.local'
     values = dict(line.split('=', 1) for line in local_env.read_text().splitlines() if '=' in line and not line.startswith('#')) if local_env.exists() else {}
-    token = os.environ.get('RUNPOD_BF16_CHAT_TOKEN') or values.get('RUNPOD_BF16_CHAT_TOKEN')
-    base = os.environ.get('RUNPOD_BF16_CHAT_URL') or values.get('RUNPOD_BF16_CHAT_URL')
+    settings, alias, web_models = PROFILES[args.profile]
+    args.expected_model = args.expected_model or alias
+    token = os.environ.get(settings + '_CHAT_TOKEN') or values.get(settings + '_CHAT_TOKEN')
+    base = os.environ.get(settings + '_CHAT_URL') or values.get(settings + '_CHAT_URL')
     if not token or not base:
-        parser.error('Set RUNPOD_BF16_CHAT_URL and RUNPOD_BF16_CHAT_TOKEN or configure qwen-chat/.env.local')
+        parser.error(f'Set {settings}_CHAT_URL and {settings}_CHAT_TOKEN or configure qwen-chat/.env.local')
     base = base.rstrip('/')
     deadline = time.monotonic() + args.wait
 
@@ -65,6 +71,10 @@ def main():
     assert health['ready'] is True and health['model'] == args.expected_model
     assert health.get('accountQuotaVersion') == 1 and health.get('accountQuotasEnforced') is True, 'Gateway account quota enforcement is unavailable'
     print('PASS: The deployed model is ready with account quotas enforced.', flush=True)
+    if health.get('webSearchVersion') == 1:
+        assert len(health.get('webSearch', {}).get('models', [])) == web_models, \
+            f'Gateway did not advertise {web_models} web-search model(s) for the {args.profile} profile'
+        print(f'PASS: The gateway advertises {web_models} web-search model(s).', flush=True)
     if args.expected_concurrency is not None:
         active = args.expected_concurrency
         admission = health.get('admission', {})
