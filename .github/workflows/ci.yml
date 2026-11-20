@@ -22,6 +22,7 @@ jobs:
           bash -n scripts/start-server.sh
           python scripts/test_prepare_model.py
           python scripts/test_deploy_runpod.py
+          python scripts/test_check_chat_deployment.py
           python scripts/test_benchmark_chat.py
           python scripts/acceptance/test_acceptance.py
       - name: Build inference image

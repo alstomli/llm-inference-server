@@ -60,6 +60,48 @@ class CheckerTests(unittest.TestCase):
                 checker.main()
             network.assert_not_called()
 
+    def test_4bit_profile_checks_its_own_gateway_for_the_4bit_alias(self):
+        health = {'ready': True, 'model': 'qwen-4bit', 'accountQuotaVersion': 1, 'accountQuotasEnforced': True}
+        environment = {'RUNPOD_BF16_CHAT_URL': 'https://bf16.invalid', 'RUNPOD_BF16_CHAT_TOKEN': 'b' * 48,
+                       'RUNPOD_4BIT_CHAT_URL': 'https://int4.invalid/', 'RUNPOD_4BIT_CHAT_TOKEN': 'f' * 48}
+        requests = self.run_checker(health, ['--profile', '4bit'], environment)
+        self.assertEqual([r.full_url for r in requests], ['https://int4.invalid/health', 'https://int4.invalid/v1/chat/completions'])
+        self.assertTrue(all(r.get_header('Authorization') == 'Bearer ' + 'f' * 48 for r in requests))
+        with self.assertRaises(AssertionError):
+            self.run_checker({**health, 'model': 'qwen-bf16'}, ['--profile', '4bit'], environment)
+
+    def test_web_search_model_count_follows_the_profile_when_the_gateway_reports_it(self):
+        connections = {'RUNPOD_4BIT_CHAT_URL': 'https://int4.invalid', 'RUNPOD_4BIT_CHAT_TOKEN': 'f' * 48}
+        quota = {'ready': True, 'accountQuotaVersion': 1, 'accountQuotasEnforced': True}
+        model = {'available': False, 'reason': 'disabled'}
+        for profile, alias, count in (('bf16', 'qwen-bf16', 2), ('4bit', 'qwen-4bit', 1)):
+            health = {**quota, 'model': alias}
+            with self.subTest(profile=profile):
+                # A gateway without versioned web search (the Python fallback) is not asked for a count.
+                self.assertEqual(len(self.run_checker(health, ['--profile', profile], connections)), 2)
+                right = {**health, 'webSearchVersion': 1, 'webSearch': {'models': [model] * count}}
+                self.assertEqual(len(self.run_checker(right, ['--profile', profile], connections)), 2)
+                for wrong in (0, 3 - count, 3):
+                    with self.subTest(models=wrong), self.assertRaises(AssertionError):
+                        self.run_checker({**right, 'webSearch': {'models': [model] * wrong}}, ['--profile', profile], connections)
+
+    def test_4bit_profile_never_borrows_the_bf16_connection(self):
+        for environment in ({'RUNPOD_4BIT_CHAT_URL': 'https://int4.invalid'},
+                            {'RUNPOD_4BIT_CHAT_TOKEN': 'f' * 48}):
+            with self.subTest(environment=environment), \
+                    patch.object(checker, 'ROOT', Path(__file__).parent / '__quota_checker_test__' / 'server'), \
+                    patch.dict(checker.os.environ, {'RUNPOD_BF16_CHAT_URL': 'https://bf16.invalid',
+                                                    'RUNPOD_BF16_CHAT_TOKEN': 'b' * 48, **environment}, clear=True), \
+                    patch('sys.argv', ['check-chat-deployment.py', '--profile', '4bit']), \
+                    patch.object(checker, 'urlopen') as network, redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                checker.main()
+            network.assert_not_called()
+
+    def test_unknown_profile_fails_before_network(self):
+        for value in ('4BIT', 'awq', ''):
+            with self.subTest(value=value), self.assertRaises(SystemExit):
+                self.run_checker({}, arguments=['--profile', value])
+
     def test_expected_concurrency_verifies_active_and_three_times_waiting_slots(self):
         health = {'ready': True, 'model': 'qwen-bf16', 'accountQuotaVersion': 1, 'accountQuotasEnforced': True}
         for active, waiting in [(2, 6), (4, 12), (5, 15), (8, 24)]:
