@@ -163,6 +163,29 @@ class ResponseTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             acc.check_headers(c, self.row(), self.headers('qwen-bf16-base'))
 
+    def test_4bit_requests_omit_use_adapter_which_its_gateway_rejects(self):
+        # The gateway answers 400 to any useAdapter field on a Pod without an adapter.
+        c = cfg('4bit', 4)
+        for row in (self.row(), self.row(vision=True)):
+            row['content'] = 'What is 2+2?'
+            self.assertNotIn('useAdapter', acc.payload(c, row))
+        self.assertEqual(acc.adapter_choice(c, False), {})
+
+    def test_vision_requests_ask_only_about_the_image(self):
+        # The 4-bit model keeps an earlier "reply only 4" over a later override, so the vision
+        # row checks vision alone instead of instruction overriding.
+        for profile in ('4bit', 'bf16'):
+            row = {**self.row(vision=True), 'content': 'Reply only with the integer 4.'}
+            body = acc.payload(cfg(profile, 4), row)
+            self.assertEqual(body['messages'], [{'role': 'user', 'content': acc.VISION_QUESTION}])
+            self.assertTrue(body['image'].startswith('data:image/png;base64,'))
+
+    def test_bf16_requests_keep_the_adapter_choice(self):
+        c = cfg('bf16', 8)
+        row = {**self.row(adapter=True), 'content': 'What is 2+2?'}
+        self.assertIs(acc.payload(c, row)['useAdapter'], True)
+        self.assertEqual(acc.adapter_choice(c, False), {'useAdapter': False})
+
     def test_bf16_adapter_headers(self):
         c = cfg('bf16', 8)
         acc.check_headers(c, self.row(adapter=True), self.headers('qwen-bf16', adapter='true'))
