@@ -267,11 +267,14 @@ def adapter_choice(cfg, use_adapter):
     return {'useAdapter': use_adapter} if cfg.spec['adapter_alias'] else {}
 
 
+# The vision row asks only about the image. Appending this question after the arithmetic
+# prompt ("ignore the earlier instruction") tested instruction overriding, which the 4-bit
+# model does less reliably than BF16; the wave is meant to test vision.
+VISION_QUESTION = 'What solid color is the attached image? Reply with only the color name.'
+
+
 def payload(cfg, row):
-    content = row['content']
-    if row['vision']:
-        content += ('\nFor this vision check, ignore the earlier arithmetic output instruction. '
-                    'What solid color is the attached image? Reply with only the color name.')
+    content = VISION_QUESTION if row['vision'] else row['content']
     value = {'messages': [{'role': 'user', 'content': content}], 'max_tokens': row['max_tokens'],
              'temperature': 0, 'stream': True, **adapter_choice(cfg, row['useAdapter']),
              'settings': {'outputTokens': row['max_tokens'], 'contextTokens': cfg.context,
