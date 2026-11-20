@@ -12,6 +12,10 @@ GitHub Issues in this repo are the single tracker for all four repos; tickets ca
 
 Default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) plus one `repo:*` label per ticket. See `docs/agents/triage-labels.md`.
 
+### Pod migration
+
+Moving a profile to another Pod, or finding where a Pod ID is configured: follow `docs/POD-MIGRATION.md`. Four of its settings live in hosted services, outside any repo.
+
 ### Domain docs
 
 Single-context: `GLOSSARY.md` and `docs/adr/` here are the shared language for the whole stack. See `docs/agents/domain.md`.
