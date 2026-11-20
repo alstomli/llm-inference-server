@@ -147,17 +147,17 @@ def check_web_capability(base, action, environment, profile='bf16'):
     with urlopen(request, timeout=15) as response:
         health = json.load(response)
     web = health.get('webSearch', {})
-    profiles = web.get('models', [])
-    if health.get('webSearchVersion') != 1 or len(profiles) != len(expected.web_aliases):
+    models = web.get('models', [])
+    if health.get('webSearchVersion') != 1 or len(models) != len(expected.web_aliases):
         raise RuntimeError('Versioned web profile capability unavailable')
     if action in ('stage', 'disable'):
-        if web.get('reason') != 'disabled' or any(profile.get('available') for profile in profiles):
+        if web.get('reason') != 'disabled' or any(model.get('available') for model in models):
             raise RuntimeError('Staged or disabled gateway advertised web search readiness')
     else:
         alias = environment['CHAT_WEB_SEARCH_VERIFIED_MODEL']
-        if not any(profile.get('model') == alias and profile.get('available') and profile.get('reason') == 'ready' for profile in profiles):
+        if not any(model.get('model') == alias and model.get('available') and model.get('reason') == 'ready' for model in models):
             raise RuntimeError('Verified alias did not advertise web search readiness')
-        if any(profile.get('available') for profile in profiles if profile.get('model') != alias):
+        if any(model.get('available') for model in models if model.get('model') != alias):
             raise RuntimeError('Unverified alias advertised web search readiness')
 
 

@@ -15,6 +15,11 @@ ENV = {'RUNPOD_BF16_POD_ID': 'bf16pod', 'DEPLOY_IMAGE': IMAGE,
        'RUNPOD_API_KEY': 'test-api', 'RUNPOD_BF16_CHAT_TOKEN': 'test-chat'}
 BF16_ENV = {**ENV, 'DEPLOY_MODEL_PROFILE': 'bf16', 'RUNPOD_BF16_POD_ID': 'bf16pod',
             'RUNPOD_BF16_CHAT_TOKEN': 'test-bf16', 'TAVILY_API_KEY': 'fixture-provider-key'}
+INT4_ENV = {'RUNPOD_API_KEY': 'test-api', 'DEPLOY_IMAGE': IMAGE, 'DEPLOY_MODEL_PROFILE': '4bit',
+            'RUNPOD_4BIT_POD_ID': 'int4pod', 'RUNPOD_4BIT_CHAT_TOKEN': 'int4-token'}
+BOTH_ENV = {'RUNPOD_API_KEY': 'test-api', 'DEPLOY_IMAGE': IMAGE,
+            'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-token',
+            'RUNPOD_4BIT_POD_ID': 'int4pod', 'RUNPOD_4BIT_CHAT_TOKEN': 'int4-token'}
 POD_ENV = {'MODEL_PROFILE': 'bf16', 'SERVED_MODEL_NAME': 'qwen-bf16',
            'VLLM_BASE_MODEL_NAME': 'qwen-bf16-base', 'MAX_NUM_SEQS': '2',
            'MAX_MODEL_LEN': '40960', 'CPU_OFFLOAD_GB': '0', 'JUPYTER_PASSWORD': 'fixture-existing-secret'}
@@ -88,9 +93,7 @@ class DeploymentTests(unittest.TestCase):
 
     def deploy_4bit_web_action(self, action, alias, pod_env, models):
         """Deploy a 4-bit web action against a fake Runpod API whose gateway health lists `models`."""
-        environment = {'RUNPOD_API_KEY': 'test-api', 'DEPLOY_IMAGE': IMAGE, 'DEPLOY_MODEL_PROFILE': '4bit',
-                       'RUNPOD_4BIT_POD_ID': 'int4pod', 'RUNPOD_4BIT_CHAT_TOKEN': 'int4-token',
-                       'DEPLOY_WEB_SEARCH_ACTION': action, 'DEPLOY_WEB_SEARCH_VERIFIED_ALIAS': alias,
+        environment = {**INT4_ENV, 'DEPLOY_WEB_SEARCH_ACTION': action, 'DEPLOY_WEB_SEARCH_VERIFIED_ALIAS': alias,
                        'TAVILY_API_KEY': 'fixture-provider-key'}
         health = {'webSearchVersion': 1, 'webSearch': {'reason': 'disabled' if action in ('stage', 'disable') else 'ready', 'models': models}}
 
@@ -141,9 +144,7 @@ class DeploymentTests(unittest.TestCase):
 
     @patch.object(deploy, 'api')
     def test_4bit_web_actions_refuse_the_adapter_and_bf16_aliases_before_any_pod_api(self, api):
-        environment = {'RUNPOD_API_KEY': 'test-api', 'DEPLOY_IMAGE': IMAGE, 'DEPLOY_MODEL_PROFILE': '4bit',
-                       'RUNPOD_4BIT_POD_ID': 'int4pod', 'RUNPOD_4BIT_CHAT_TOKEN': 'int4-token',
-                       'TAVILY_API_KEY': 'fixture-provider-key'}
+        environment = {**INT4_ENV, 'TAVILY_API_KEY': 'fixture-provider-key'}
         for action, alias in [('enable-adapter', 'qwen-4bit'), ('enable-adapter', 'qwen-bf16'),
                               ('enable-base', 'qwen-bf16-base')]:
             with self.subTest(action=action, alias=alias), self.assertRaises(ValueError), patch.dict(os.environ, {
@@ -187,9 +188,7 @@ class DeploymentTests(unittest.TestCase):
         return {'patched': patched, 'paths': set(paths), 'checker': runner.call_args.args[0], 'checker_env': checker_env}
 
     def test_each_profile_deploys_only_its_own_pod_and_checks_its_alias(self):
-        both = {'RUNPOD_API_KEY': 'test-api', 'DEPLOY_IMAGE': IMAGE,
-                'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-token',
-                'RUNPOD_4BIT_POD_ID': 'int4pod', 'RUNPOD_4BIT_CHAT_TOKEN': 'int4-token'}
+        both = BOTH_ENV
         for profile, pod, alias, prefix, token in [('bf16', 'bf16pod', 'qwen-bf16', 'RUNPOD_BF16', 'bf16-token'),
                                                    ('4bit', 'int4pod', 'qwen-4bit', 'RUNPOD_4BIT', 'int4-token')]:
             with self.subTest(profile=profile):
@@ -215,9 +214,7 @@ class DeploymentTests(unittest.TestCase):
 
     @patch.object(deploy, 'deploy_image')
     def test_pod_whose_profile_setting_differs_from_the_chosen_profile_is_not_updated(self, apply):
-        both = {'RUNPOD_API_KEY': 'test-api', 'DEPLOY_IMAGE': IMAGE,
-                'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-token',
-                'RUNPOD_4BIT_POD_ID': 'int4pod', 'RUNPOD_4BIT_CHAT_TOKEN': 'int4-token'}
+        both = BOTH_ENV
         for chosen, configured in [('4bit', 'bf16'), ('bf16', '4bit'), ('4bit', None)]:
             pod_env = {} if configured is None else {'MODEL_PROFILE': configured}
             with self.subTest(chosen=chosen, configured=configured), \
@@ -228,9 +225,7 @@ class DeploymentTests(unittest.TestCase):
         apply.assert_not_called()
 
     def test_any_concurrency_from_two_to_eight_is_applied_and_verified_by_the_live_check(self):
-        int4 = {'RUNPOD_API_KEY': 'test-api', 'DEPLOY_IMAGE': IMAGE, 'DEPLOY_MODEL_PROFILE': '4bit',
-                'RUNPOD_4BIT_POD_ID': 'int4pod', 'RUNPOD_4BIT_CHAT_TOKEN': 'int4-token'}
-        for profile, environment in (('bf16', ENV), ('4bit', int4)):
+        for profile, environment in (('bf16', ENV), ('4bit', INT4_ENV)):
             for sequences in ('2', '4', '5', '8'):
                 with self.subTest(profile=profile, sequences=sequences):
                     patched, checker = self.deploy_with_live_check({**environment, 'DEPLOY_MAX_NUM_SEQS': sequences}, profile)
