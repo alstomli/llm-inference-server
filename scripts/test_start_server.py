@@ -344,18 +344,15 @@ ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
         self.assertIn('Chat token file is missing', output)
         self.closed(8000)
 
-    def test_explicit_python_rollback_keeps_authenticated_health(self):
-        self.start(METRICS_ENABLED='false', CHAT_ENABLED='true', CHAT_GATEWAY_IMPLEMENTATION='python')
-        health = json.loads(self.ready(self.chat_port, True, '/health'))
-        self.assertTrue(health['accountQuotasEnforced'])
-        self.assertEqual(health['accountQuotaVersion'], 1)
-
-    def test_unknown_gateway_implementation_refuses_startup(self):
-        self.start(CHAT_ENABLED='true', CHAT_GATEWAY_IMPLEMENTATION='unknown')
-        output = self.process.communicate(timeout=10)[0]
-        self.assertEqual(self.process.returncode, 1)
-        self.assertIn('CHAT_GATEWAY_IMPLEMENTATION must be', output)
-        self.closed(8000)
+    def test_gateway_implementations_other_than_go_refuse_startup(self):
+        # The Python gateway was removed; a Pod still asking for it must fail loudly.
+        for implementation in ('python', 'unknown'):
+            with self.subTest(implementation=implementation):
+                self.start(CHAT_ENABLED='true', CHAT_GATEWAY_IMPLEMENTATION=implementation)
+                output = self.process.communicate(timeout=10)[0]
+                self.assertEqual(self.process.returncode, 1)
+                self.assertIn('CHAT_GATEWAY_IMPLEMENTATION must be go or unset', output)
+                self.closed(8000)
 
 
     def bf16_environment(self):

@@ -14,7 +14,6 @@ COPY scripts/start-server.sh /usr/local/bin/start-server
 COPY scripts/kv-runtime-config.py /usr/local/lib/kv-runtime-config.py
 COPY scripts/kv_runtime.py /usr/local/lib/python3.12/dist-packages/kv_runtime.py
 COPY scripts/metrics-relay.py /usr/local/lib/metrics-relay.py
-COPY scripts/chat-gateway.py /usr/local/lib/chat-gateway.py
 COPY --from=gateway-build /out/chat-gateway /usr/local/bin/chat-gateway
 COPY scripts/validate-lora-adapter.py /usr/local/lib/validate-lora-adapter.py
 COPY scripts/prepare_model.py /usr/local/lib/prepare-model.py
