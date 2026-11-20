@@ -14,6 +14,8 @@ IMAGE = re.compile(r'zihan000/qwen-inference@sha256:[0-9a-f]{64}\Z')
 POD = re.compile(r'[A-Za-z0-9_-]+\Z')
 SCRIPT = Path(__file__).with_name('check-chat-deployment.py')
 CONCURRENCIES = tuple(str(n) for n in range(2, 9))
+# Runpod REST API v2; v1 (rest.runpod.io) was retired in November 2026.
+API_BASE = 'https://api.runpod.io/v2'
 
 
 class Profile(NamedTuple):
@@ -35,7 +37,7 @@ PROFILES = {'bf16': Profile('RUNPOD_BF16', 'qwen-bf16', 'qwen-bf16-base', 'BF16'
 
 
 def api(method, path, body=None):
-    request = Request('https://rest.runpod.io/v1' + path,
+    request = Request(API_BASE + path,
                       data=json.dumps(body).encode() if body is not None else None,
                       headers={'Authorization': 'Bearer ' + os.environ['RUNPOD_API_KEY'],
                                'User-Agent': 'llm-inference-deployer/1.0',
@@ -76,7 +78,7 @@ def check_transition(base, timeout=180):
 
 def deploy_image(path, image, base, env=None, concurrency=None, profile='bf16'):
     # Runpod's update operation resets the Pod; do not separately restart it.
-    update = {'imageName': image}
+    update = {'image': image}
     if env is not None:
         update['env'] = env
     api('PATCH', path, update)
@@ -84,7 +86,7 @@ def deploy_image(path, image, base, env=None, concurrency=None, profile='bf16'):
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         reported = api('GET', path)
-        if reported.get('imageName') == image and (env is None or reported.get('env') == env):
+        if reported.get('image') == image and (env is None or reported.get('env') == env):
             break
         time.sleep(3)
     else:
@@ -190,10 +192,10 @@ def main():
     os.environ[settings + '_CHAT_URL'] = base
     path = '/pods/' + pod
     current = api('GET', path)
-    previous = current.get('imageName')
+    previous = current.get('image')
     if not isinstance(previous, str) or not re.fullmatch(r'[A-Za-z0-9_./:@-]+', previous):
         raise RuntimeError('Cannot safely determine the previous image')
-    if current.get('desiredStatus') != 'RUNNING':
+    if current.get('status') != 'RUNNING':
         raise RuntimeError('Pod must be running before deployment')
     if current.get('env', {}).get('MODEL_PROFILE') != profile:
         raise RuntimeError(f'The {label} Pod must have MODEL_PROFILE={profile}; complete its one-time profile/entrypoint/ports setup first')
