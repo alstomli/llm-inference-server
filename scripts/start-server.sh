@@ -19,8 +19,9 @@ case "$profile" in
       echo 'The 4bit profile has no CPU weight offload; remove CPU_OFFLOAD_GB.' >&2; exit 1;
     }
     # FlashInfer JIT-compiles its FP8-KV decode kernel on SM120 at first start.
-    export PATH="${CUDA_HOME:-/usr/local/cuda}/bin:$PATH"
-    [[ -x "${CUDA_HOME:-}/bin/nvcc" ]] && command -v ninja >/dev/null || {
+    export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+    export PATH="$CUDA_HOME/bin:$PATH"
+    [[ -x "$CUDA_HOME/bin/nvcc" ]] && command -v ninja >/dev/null || {
       echo 'The 4bit profile needs nvcc under CUDA_HOME and ninja on PATH to build FlashInfer kernels.' >&2; exit 1;
     }
     ;;

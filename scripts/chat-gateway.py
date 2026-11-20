@@ -2,7 +2,7 @@
 """Authenticated, streaming chat-only ingress for the private vLLM server."""
 import asyncio
 import base64
-from collections import deque
+from collections import deque, namedtuple
 from contextlib import asynccontextmanager
 import hmac
 import math
@@ -241,8 +241,8 @@ def capacity_from_env():
     return concurrency, integer('CHAT_MAX_WAITING', 3 * concurrency), integer('CHAT_RATE_LIMIT_PER_MINUTE', 20)
 
 
-# Profile -> (default alias, label). Only bf16 has an adapter.
-PROFILES = {'bf16': ('qwen-bf16', 'BF16'), '4bit': ('qwen-4bit', '4-bit')}
+Profile = namedtuple('Profile', 'alias adapter')
+PROFILES = {'bf16': Profile('qwen-bf16', adapter=True), '4bit': Profile('qwen-4bit', adapter=False)}
 
 
 def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', context=40960, transport=None,
@@ -251,7 +251,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', conte
                queue_limit=None, rate_limit=None):
     if model_profile not in PROFILES:
         raise ValueError('MODEL_PROFILE must be bf16 or 4bit')
-    if model_profile != 'bf16' and base_model is not None:
+    if not PROFILES[model_profile].adapter and base_model is not None:
         raise ValueError(f'The {model_profile} profile has no adapter')
     if base_model is not None and (not isinstance(base_model, str) or not base_model or base_model == model):
         raise ValueError('Base and adapter aliases must be distinct')
@@ -465,7 +465,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', conte
         except (ValueError, UnicodeError):
             return chat_error('Invalid chat request', 400)
         if 'image' in value and adapter_enabled:
-            return chat_error(f'Turn off the {PROFILES[model_profile][1]} adapter to attach an image.', 400, 'image_adapter')
+            return chat_error('Turn off the BF16 adapter to attach an image.', 400, 'image_adapter')
         system = SYSTEM
         if docs_passages is not None:
             system = DOCS_SYSTEM
@@ -679,7 +679,7 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', conte
 if __name__ == '__main__':
     import uvicorn
     secret = Path(os.environ.get('CHAT_TOKEN_FILE', '/workspace/chat/chat-token')).read_text().strip()
-    alias = os.environ.get('SERVED_MODEL_NAME', PROFILES.get(os.environ.get('MODEL_PROFILE', 'bf16'), PROFILES['bf16'])[0])
+    alias = os.environ.get('SERVED_MODEL_NAME', PROFILES.get(os.environ.get('MODEL_PROFILE', 'bf16'), PROFILES['bf16']).alias)
     app = create_app(secret, model=alias,
                      base_model=(os.environ.get('VLLM_BASE_MODEL_NAME') or alias + '-base') if os.environ.get('LORA_ADAPTER_PATH') else None,
                      upstream='http://127.0.0.1:' + os.environ.get('VLLM_PORT', '8000'),

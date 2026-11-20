@@ -23,10 +23,15 @@ type Config struct {
 	Transport http.RoundTripper
 }
 
-// profile is one named serving configuration; only bf16 has an adapter.
-type profile struct{ alias, label string }
+// profile is one named serving configuration: its default alias and whether it has an adapter.
+type profile struct {
+	alias   string
+	adapter bool
+}
 
-var profiles = map[string]profile{"bf16": {"qwen-bf16", "BF16"}, "4bit": {"qwen-4bit", "4-bit"}}
+var profiles = map[string]profile{"bf16": {"qwen-bf16", true}, "4bit": {"qwen-4bit", false}}
+
+func noAdapter(name string) error { return errors.New("the " + name + " profile has no adapter") }
 
 var errProfile = errors.New("MODEL_PROFILE must be bf16 or 4bit")
 
@@ -46,8 +51,8 @@ func ConfigFromEnv() (Config, error) {
 	if !ok {
 		return c, errProfile
 	}
-	if c.ModelProfile != "bf16" && (os.Getenv("LORA_ADAPTER_PATH") != "" || os.Getenv("VLLM_BASE_MODEL_NAME") != "") {
-		return c, errors.New("the " + c.ModelProfile + " profile has no adapter; remove LORA_ADAPTER_PATH and VLLM_BASE_MODEL_NAME")
+	if !selected.adapter && (os.Getenv("LORA_ADAPTER_PATH") != "" || os.Getenv("VLLM_BASE_MODEL_NAME") != "") {
+		return c, noAdapter(c.ModelProfile)
 	}
 	raw, e := os.ReadFile(envDefault("CHAT_TOKEN_FILE", "/workspace/chat/chat-token"))
 	if e != nil {

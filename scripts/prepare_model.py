@@ -30,14 +30,18 @@ class Profile:
     require_revision: bool = False  # Refuse to stage without a reviewed pin.
 
 
-def tensor_dtypes(model_dir):
-    dtype_counts = {}
+def safetensors_headers(model_dir):
     for shard in model_dir.glob('*.safetensors'):
         with shard.open('rb') as source:
             header_size = struct.unpack('<Q', source.read(8))[0]
             if header_size > 64 * 1024 * 1024:
                 raise ValueError('Unexpected safetensors header size')
-            header = json.loads(source.read(header_size))
+            yield json.loads(source.read(header_size))
+
+
+def tensor_dtypes(model_dir):
+    dtype_counts = {}
+    for header in safetensors_headers(model_dir):
         for name, tensor in header.items():
             if name != '__metadata__':
                 dtype = tensor['dtype']
@@ -55,18 +59,6 @@ def validate_bf16(model_dir):
     return {'tensor_dtypes': dtype_counts}
 
 
-def tensor_names(model_dir):
-    names = set()
-    for shard in model_dir.glob('*.safetensors'):
-        with shard.open('rb') as source:
-            header_size = struct.unpack('<Q', source.read(8))[0]
-            if header_size > 64 * 1024 * 1024:
-                raise ValueError('Unexpected safetensors header size')
-            names.update(json.loads(source.read(header_size)))
-    names.discard('__metadata__')
-    return names
-
-
 def validate_w4a16(model_dir):
     """Accept only compressed-tensors 4-bit integer weights with 16-bit activations."""
     quantization = json.loads((model_dir / 'config.json').read_text()).get('quantization_config') or {}
@@ -76,7 +68,7 @@ def validate_w4a16(model_dir):
             and (group.get('weights') or {}).get('type') == 'int'
             and not group.get('input_activations') for group in groups):
         raise ValueError('The checkpoint is not compressed-tensors W4A16')
-    names = tensor_names(model_dir)
+    names = {name for header in safetensors_headers(model_dir) for name in header} - {'__metadata__'}
     if not any(name.endswith('.weight_packed') for name in names):
         raise ValueError('Packed W4A16 weights were not found')
     if not any(name.startswith('model.visual.') for name in names):
