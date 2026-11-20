@@ -1,4 +1,8 @@
-"""Update one Runpod image and restore the previous image if verification fails."""
+"""Update one Runpod image and restore the previous image if verification fails.
+
+With no arguments this is the deploy workflow's step. The set-env, copy-env and stop
+subcommands manage one Pod by hand; see --help.
+"""
 import json
 import os
 import re
@@ -14,6 +18,11 @@ IMAGE = re.compile(r'zihan000/qwen-inference@sha256:[0-9a-f]{64}\Z')
 POD = re.compile(r'[A-Za-z0-9_-]+\Z')
 SCRIPT = Path(__file__).with_name('check-chat-deployment.py')
 CONCURRENCIES = tuple(str(n) for n in range(2, 9))
+# Settings Runpod writes itself: never sent, copied or compared.
+RUNPOD_MANAGED = frozenset({'PUBLIC_KEY'})
+# Settings that belong to one Pod: a copy keeps the target's own.
+POD_OWNED = RUNPOD_MANAGED | {'JUPYTER_PASSWORD'}
+SETTING = re.compile(r'[A-Z][A-Z0-9_]*\Z')
 # Runpod REST API v2; v1 (rest.runpod.io) was retired in November 2026.
 API_BASE = 'https://api.runpod.io/v2'
 
@@ -84,8 +93,10 @@ def deploy_image(path, image, base, env=None, concurrency=None, profile='bf16'):
     api('PATCH', path, update)
     check_transition(base)
     # Runpod v2 reports env without settings whose value is empty; an empty setting and a
-    # missing one mean the same thing to the launcher, so compare without them.
-    present = lambda settings: {key: value for key, value in (settings or {}).items() if value != ''}
+    # missing one mean the same thing to the launcher, so compare without them. Runpod also
+    # rewrites the settings it manages, so those are not compared either.
+    present = lambda settings: {key: value for key, value in (settings or {}).items()
+                                if value != '' and key not in RUNPOD_MANAGED}
     deadline = time.monotonic() + 180
     differing = []
     while time.monotonic() < deadline:
@@ -253,5 +264,144 @@ def main():
     summary(f'First official {label} release passed the live chat checks.' if first_release else 'Deployment passed the live chat checks.')
 
 
+def require_pod(pod):
+    if not POD.fullmatch(pod):
+        raise ValueError('Invalid Pod ID')
+    return pod
+
+
+def load_api_key():
+    """Use RUNPOD_API_KEY from the environment, else from the repo's git-ignored .env."""
+    if not os.environ.get('RUNPOD_API_KEY'):
+        dotenv = Path(__file__).resolve().parent.parent / '.env'
+        if dotenv.exists():
+            for line in dotenv.read_text(encoding='utf-8').splitlines():
+                key, _, value = line.partition('=')
+                if key.strip() == 'RUNPOD_API_KEY' and value.strip():
+                    os.environ['RUNPOD_API_KEY'] = value.strip().strip('"\'')
+    if not os.environ.get('RUNPOD_API_KEY'):
+        raise ValueError('Set RUNPOD_API_KEY or add it to the repo .env')
+
+
+def pod_state(pod):
+    state = api('GET', '/pods/' + pod)
+    env = state.get('env') or {}
+    if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
+        raise RuntimeError(f'Cannot safely read the settings of Pod {pod}')
+    return state.get('image'), state.get('status'), env
+
+
+def sendable(env):
+    return {key: value for key, value in env.items() if key not in RUNPOD_MANAGED}
+
+
+def apply_settings(pod, image, env, previous_image, previous_env, profile):
+    """Apply an image and full settings, run the live chat check, and restore the previous ones on failure."""
+    settings = PROFILES[profile].settings
+    base = f'https://{pod}-8001.proxy.runpod.net'
+    os.environ[settings + '_CHAT_URL'] = base
+    path = '/pods/' + pod
+    sequences = env.get('MAX_NUM_SEQS')
+    concurrency = int(sequences) if sequences in CONCURRENCIES else None
+    try:
+        deploy_image(path, image, base, env=sendable(env), concurrency=concurrency, profile=profile)
+    except Exception as failure:
+        summary(f'Update of `{pod}` failed ({type(failure).__name__}); restoring its previous image and settings.')
+        try:
+            deploy_image(path, previous_image, base, env=sendable(previous_env), profile=profile)
+            summary('Restore passed the live chat checks.')
+        except Exception as restore:
+            summary(f'RESTORE FAILED ({type(restore).__name__}): inspect Pod `{pod}` immediately.')
+        raise RuntimeError(f'Update of {pod} failed; see the log for the restore status') from failure
+    summary(f'Pod `{pod}` passed the live chat checks.')
+
+
+def set_env(pod, profile, assignments):
+    """Change named settings on a running Pod and keep every other one."""
+    changes = {}
+    for assignment in assignments:
+        key, sep, value = assignment.partition('=')
+        if not sep or not SETTING.fullmatch(key):
+            raise ValueError('Each setting must be KEY=VALUE with an upper-case KEY')
+        if key in RUNPOD_MANAGED:
+            raise ValueError(f'{key} is managed by Runpod')
+        changes[key] = value
+    image, status, env = pod_state(pod)
+    if status != 'RUNNING' or env.get('MODEL_PROFILE') != profile:
+        raise RuntimeError(f'Pod {pod} must be running with MODEL_PROFILE={profile}')
+    changed = sorted(key for key, value in changes.items() if env.get(key) != value)
+    if not changed:
+        summary(f'Pod `{pod}` already has these settings; nothing changed.')
+        return
+    summary(f'Changing on `{pod}`: {", ".join(changed)}. Other settings and the image are kept; no values are recorded.')
+    apply_settings(pod, image, {**env, **changes}, image, env, profile)
+
+
+def copy_env(source, target, profile):
+    """Give a running target Pod the source Pod's image and settings, keeping the target's own settings."""
+    if source == target:
+        raise ValueError('The source and target Pods must differ')
+    image, _, source_env = pod_state(source)
+    if source_env.get('MODEL_PROFILE') != profile:
+        raise RuntimeError(f'Source Pod {source} must have MODEL_PROFILE={profile}')
+    if not isinstance(image, str) or not IMAGE.fullmatch(image):
+        raise RuntimeError(f'Source Pod {source} does not run an official image')
+    target_image, status, target_env = pod_state(target)
+    if status != 'RUNNING':
+        raise RuntimeError(f'Target Pod {target} must be running')
+    env = {key: value for key, value in source_env.items() if key not in POD_OWNED}
+    env.update({key: value for key, value in target_env.items() if key in POD_OWNED})
+    summary(f'Copying the image and {len(env)} settings from `{source}` to `{target}`; '
+            'the target keeps its own Jupyter password and SSH key. No values are recorded.')
+    apply_settings(target, image, env, target_image, target_env, profile)
+
+
+def stop(pod, timeout=300):
+    """Stop a Pod (never terminate it) and wait until Runpod reports it exited."""
+    _, status, _ = pod_state(pod)
+    if status == 'EXITED':
+        summary(f'Pod `{pod}` is already stopped.')
+        return
+    api('POST', f'/pods/{pod}/action', {'action': 'stop'})
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        _, status, _ = pod_state(pod)
+        if status == 'EXITED':
+            summary(f'Pod `{pod}` is stopped; its volume is kept.')
+            return
+        time.sleep(5)
+    raise RuntimeError(f'Pod {pod} did not report EXITED within {timeout} seconds')
+
+
+def cli(argv):
+    """No arguments: the workflow deploy, configured by environment. Otherwise one Pod command."""
+    if not argv:
+        main()
+        return
+    import argparse
+    parser = argparse.ArgumentParser(description='Runpod Pod commands. Pod settings values are never printed.')
+    commands = parser.add_subparsers(dest='command', required=True)
+    command = commands.add_parser('set-env', help='change named settings on a running Pod, then run the live chat check')
+    command.add_argument('--profile', required=True, choices=sorted(PROFILES))
+    command.add_argument('pod')
+    command.add_argument('settings', nargs='+', metavar='KEY=VALUE')
+    command = commands.add_parser('copy-env', help="copy one Pod's image and settings to another running Pod, then run the live chat check")
+    command.add_argument('--profile', required=True, choices=sorted(PROFILES))
+    command.add_argument('source')
+    command.add_argument('target')
+    command = commands.add_parser('stop', help='stop a Pod and wait until it has exited')
+    command.add_argument('pod')
+    args = parser.parse_args(argv)
+    for pod in (getattr(args, name) for name in ('pod', 'source', 'target') if hasattr(args, name)):
+        require_pod(pod)
+    load_api_key()
+    if args.command == 'set-env':
+        set_env(args.pod, args.profile, args.settings)
+    elif args.command == 'copy-env':
+        copy_env(args.source, args.target, args.profile)
+    else:
+        stop(args.pod)
+
+
 if __name__ == '__main__':
-    main()
+    cli(sys.argv[1:])
