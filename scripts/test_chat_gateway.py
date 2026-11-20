@@ -1008,8 +1008,9 @@ class AdmissionTests(unittest.IsolatedAsyncioTestCase):
 
 class CapacityEnvironmentTests(unittest.IsolatedAsyncioTestCase):
     def test_source_fallback_and_explicit_bounded_capacity(self):
-        cases = [({}, (2,6,20)), ({'MAX_NUM_SEQS':'1'}, (1,6,20)),
-                 ({'MAX_NUM_SEQS':'8'}, (2,6,20)),
+        cases = [({}, (2,6,20)), ({'MAX_NUM_SEQS':'3'}, (3,9,20)), ({'MAX_NUM_SEQS':'4'}, (4,12,20)),
+                 ({'MAX_NUM_SEQS':'6'}, (6,18,20)), ({'MAX_NUM_SEQS':'8'}, (8,24,20)),
+                 ({'MAX_NUM_SEQS':'8','CHAT_MAX_CONCURRENT':'4'}, (4,12,20)),
                  ({'MAX_NUM_SEQS':'8','CHAT_MAX_CONCURRENT':'8','CHAT_MAX_WAITING':'24','CHAT_RATE_LIMIT_PER_MINUTE':'80'}, (8,24,80))]
         for values, expected in cases:
             with patch.dict(os.environ, values, clear=True):
@@ -1021,7 +1022,7 @@ class CapacityEnvironmentTests(unittest.IsolatedAsyncioTestCase):
             for value in ['', '-1', '1.5', '+2', ' 2', '1_0', '81']:
                 with self.subTest(key=key,value=value),patch.dict(os.environ,{key:value},clear=True),self.assertRaises(ValueError):
                     gateway.create_app(TOKEN)
-        for values in [{'MAX_NUM_SEQS':'0'},{'MAX_NUM_SEQS':'9'},{'CHAT_MAX_CONCURRENT':'0'},
+        for values in [{'MAX_NUM_SEQS':'0'},{'MAX_NUM_SEQS':'1'},{'MAX_NUM_SEQS':'9'},{'CHAT_MAX_CONCURRENT':'0'},
                        {'CHAT_MAX_CONCURRENT':'8'}, {'CHAT_MAX_WAITING':'25'}, {'CHAT_RATE_LIMIT_PER_MINUTE':'0'}]:
             with patch.dict(os.environ,values,clear=True),self.assertRaises(ValueError): gateway.create_app(TOKEN)
 

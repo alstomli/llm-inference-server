@@ -60,6 +60,22 @@ class CheckerTests(unittest.TestCase):
                 checker.main()
             network.assert_not_called()
 
+    def test_expected_concurrency_verifies_active_and_three_times_waiting_slots(self):
+        health = {'ready': True, 'model': 'qwen-bf16', 'accountQuotaVersion': 1, 'accountQuotasEnforced': True}
+        for active, waiting in [(2, 6), (4, 12), (5, 15), (8, 24)]:
+            with self.subTest(active=active):
+                ok = {**health, 'admission': {'maxConcurrentRequests': active, 'maxWaitingRequests': waiting}}
+                self.assertEqual(len(self.run_checker(ok, ['--expected-concurrency', str(active)])), 2)
+        for admission in [{}, {'maxConcurrentRequests': 4, 'maxWaitingRequests': 6},
+                          {'maxConcurrentRequests': 2, 'maxWaitingRequests': 12}]:
+            with self.subTest(admission=admission), self.assertRaises(AssertionError):
+                self.run_checker({**health, 'admission': admission}, ['--expected-concurrency', '4'])
+
+    def test_expected_concurrency_outside_two_to_eight_fails_before_network(self):
+        for value in ('1', '9', 'x'):
+            with self.subTest(value=value), self.assertRaises(SystemExit):
+                self.run_checker({}, arguments=['--expected-concurrency', value])
+
     def test_invalid_identity_fails_before_network(self):
         with self.assertRaises(SystemExit):
             self.run_checker({}, arguments=['--user-id', 'not-a-uuid'])

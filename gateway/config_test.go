@@ -74,8 +74,12 @@ func TestBoundedCapacityEnvironment(t *testing.T) {
 		bad                   bool
 	}{
 		{"fallback", nil, 2, 6, 20, false},
-		{"one engine", map[string]string{"MAX_NUM_SEQS": "1"}, 1, 6, 20, false},
-		{"larger engine alone keeps fallback", map[string]string{"MAX_NUM_SEQS": "8"}, 2, 6, 20, false},
+		{"engine 3 sets slots", map[string]string{"MAX_NUM_SEQS": "3"}, 3, 9, 20, false},
+		{"engine 4 sets slots", map[string]string{"MAX_NUM_SEQS": "4"}, 4, 12, 20, false},
+		{"engine 5 sets slots", map[string]string{"MAX_NUM_SEQS": "5"}, 5, 15, 20, false},
+		{"engine 6 sets slots", map[string]string{"MAX_NUM_SEQS": "6"}, 6, 18, 20, false},
+		{"engine 8 sets slots", map[string]string{"MAX_NUM_SEQS": "8"}, 8, 24, 20, false},
+		{"explicit active sets waiting", map[string]string{"MAX_NUM_SEQS": "8", "CHAT_MAX_CONCURRENT": "4"}, 4, 12, 20, false},
 		{"production", map[string]string{"MAX_NUM_SEQS": "8", "CHAT_MAX_CONCURRENT": "8", "CHAT_MAX_WAITING": "24", "CHAT_RATE_LIMIT_PER_MINUTE": "80"}, 8, 24, 80, false},
 		{"no wait", map[string]string{"CHAT_MAX_WAITING": "0", "CHAT_USER_MAX_WAITING": "0"}, 2, 0, 20, false},
 	}
@@ -90,7 +94,7 @@ func TestBoundedCapacityEnvironment(t *testing.T) {
 		}
 	}
 	for _, values := range []map[string]string{
-		{"MAX_NUM_SEQS": "0"}, {"MAX_NUM_SEQS": "9"}, {"CHAT_MAX_CONCURRENT": "0"},
+		{"MAX_NUM_SEQS": "0"}, {"MAX_NUM_SEQS": "1"}, {"MAX_NUM_SEQS": "9"}, {"CHAT_MAX_CONCURRENT": "0"},
 		{"MAX_NUM_SEQS": "2", "CHAT_MAX_CONCURRENT": "8"}, {"MAX_NUM_SEQS": "8", "CHAT_MAX_CONCURRENT": "9"},
 		{"CHAT_MAX_WAITING": "25"}, {"CHAT_RATE_LIMIT_PER_MINUTE": "0"},
 	} {
