@@ -163,6 +163,12 @@ class ProfileStagingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'requires the fake checkpoint'):
             self.stage(self.profile(model_id='example/other'))
 
+    def test_unpinned_profile_still_requires_the_volume_config(self):
+        (self.root / 'config.json').unlink()
+        with self.assertRaisesRegex(ValueError, 'config.json naming the fake checkpoint'):
+            self.stage(self.profile(revision=None))
+        self.assertEqual(self.revisions, [])
+
     def test_selects_profile_from_environment(self):
         self.assertIs(self.module.select_profile({}), self.module.PROFILES['bf16'])
         self.assertIs(self.module.select_profile({'MODEL_PROFILE': 'bf16'}),
@@ -271,6 +277,19 @@ class FourBitStagingTests(unittest.TestCase):
         self.assertEqual(self.revisions, [PINNED_4BIT])
         self.assertEqual(state['quantization'], 'compressed-tensors W4A16')
         self.assertEqual(state['tensor_dtypes'], {'I32': 1, 'BF16': 3})
+
+    def test_stages_on_a_fresh_volume_without_a_config_file(self):
+        (self.root / 'config.json').unlink()
+        state = self.stage()
+        self.assertTrue(state['complete'])
+        self.assertEqual(state['model_id'], 'RedHatAI/Qwen3.8-27B-INT4')
+        self.assertFalse((self.root / 'config.json').exists())
+
+    def test_refuses_a_volume_config_naming_another_model(self):
+        (self.root / 'config.json').write_text('{"model_id":"Qwen/Qwen3.8-27B"}')
+        with self.assertRaisesRegex(ValueError, 'requires the 4-bit base checkpoint'):
+            self.stage()
+        self.assertEqual(self.revisions, [])
 
     def test_refuses_a_hub_revision_other_than_the_pin(self):
         self.hub_sha = 'd' * 40
