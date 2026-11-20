@@ -83,14 +83,23 @@ def deploy_image(path, image, base, env=None, concurrency=None, profile='bf16'):
         update['env'] = env
     api('PATCH', path, update)
     check_transition(base)
+    # Runpod v2 reports env without settings whose value is empty; an empty setting and a
+    # missing one mean the same thing to the launcher, so compare without them.
+    present = lambda settings: {key: value for key, value in (settings or {}).items() if value != ''}
     deadline = time.monotonic() + 180
+    differing = []
     while time.monotonic() < deadline:
         reported = api('GET', path)
-        if reported.get('image') == image and (env is None or reported.get('env') == env):
+        differing = [] if env is None else sorted(
+            key for key in present(env).keys() | present(reported.get('env')).keys()
+            if present(env).get(key) != present(reported.get('env')).get(key))
+        if reported.get('image') == image and not differing:
             break
         time.sleep(3)
     else:
-        raise RuntimeError('Runpod did not report the requested image/environment')
+        image_note = '' if reported.get('image') == image else 'image; '
+        raise RuntimeError(f'Runpod did not report the requested {image_note}settings differ: '
+                           + (', '.join(differing) or 'none'))
     wait = 3600
     checker = [sys.executable, str(SCRIPT), '--wait', str(wait), '--profile', profile,
                '--expected-model', PROFILES[profile].alias, '--read-timeout', '180']
