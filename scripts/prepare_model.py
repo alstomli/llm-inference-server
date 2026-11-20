@@ -110,7 +110,16 @@ def write_manifest(manifest, state):
 
 def stage(profile, root, staging):
     model, manifest = root / 'model', root / 'model-manifest.json'
-    config = json.loads((root / 'config.json').read_text())
+    # The volume's config.json names the model the operator meant for this volume. A profile
+    # pinned to a reviewed revision already fixes its model, so a fresh volume needs no file;
+    # one that is present must still agree.
+    config_file = root / 'config.json'
+    if config_file.exists():
+        config = json.loads(config_file.read_text())
+    elif profile.revision:
+        config = {'model_id': profile.model_id}
+    else:
+        raise ValueError(f'{config_file} naming the {profile.label} checkpoint is required')
     if config['model_id'] != profile.model_id:
         raise ValueError(f'This deployment requires the {profile.label} checkpoint')
     if profile.require_revision and not profile.revision:

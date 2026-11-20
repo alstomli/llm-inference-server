@@ -65,7 +65,9 @@ With `MODEL_PROFILE=4bit` the launcher stages `RedHatAI/Qwen3.8-27B-INT4` at the
 reviewed revision `71dface38d4cbfa34121f1d446d4a0fa1025f13c` under
 `QWEN_4BIT_ROOT/model` (default `/workspace/qwen-4bit`); staging refuses another
 revision, a checkpoint that is not compressed-tensors W4A16, or one without the vision
-tower. It serves `qwen-4bit` with `--kv-cache-dtype fp8`, no CPU weight offload, the
+tower. A fresh volume needs no `config.json`, because the pin already names the model;
+if one exists, its `model_id` must be `RedHatAI/Qwen3.8-27B-INT4`. BF16 still requires
+`BF16_ROOT/config.json`. The 4bit profile serves `qwen-4bit` with `--kv-cache-dtype fp8`, no CPU weight offload, the
 same 40,960 context, vision, optional CPU KV offload and tool parser, and refuses
 `LORA_ADAPTER_PATH`, `VLLM_BASE_MODEL_NAME`, `MAX_LORA_RANK` and a non-zero
 `CPU_OFFLOAD_GB`. FlashInfer JIT-compiles its FP8-KV decode kernel on the RTX PRO 4500
