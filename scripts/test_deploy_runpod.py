@@ -32,6 +32,17 @@ class DeploymentTests(unittest.TestCase):
         network.start()
         self.addCleanup(network.stop)
 
+    def test_pod_api_uses_runpod_rest_api_v2(self):
+        # REST API v1 (rest.runpod.io) was retired; v2 names the image `image` and the state `status`.
+        response = unittest.mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"image": "x"}'
+        with patch.dict(os.environ, {'RUNPOD_API_KEY': 'test-api'}), \
+                patch.object(deploy, 'urlopen', return_value=response) as opened:
+            self.assertEqual(deploy.api('GET', '/pods/testpod'), {'image': 'x'})
+        request = opened.call_args.args[0]
+        self.assertEqual(request.full_url, 'https://api.runpod.io/v2/pods/testpod')
+        self.assertEqual(request.get_header('Authorization'), 'Bearer test-api')
+
     def test_web_staging_preserves_all_unrelated_settings_and_never_verifies(self):
         result = deploy.web_environment(POD_ENV, 'stage', '', 'fixture-provider-key')
         for key, value in POD_ENV.items():
@@ -78,7 +89,7 @@ class DeploymentTests(unittest.TestCase):
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
     @patch.object(deploy, 'check_web_capability', side_effect=RuntimeError('capability failed'))
-    @patch.object(deploy, 'api', return_value={'imageName': IMAGE, 'desiredStatus': 'RUNNING', 'env': POD_ENV})
+    @patch.object(deploy, 'api', return_value={'image': IMAGE, 'status': 'RUNNING', 'env': POD_ENV})
     def test_web_capability_failure_rolls_back_full_environment_and_image_without_logging_key(self, api, check, apply, summary):
         with self.assertRaises(RuntimeError):
             deploy.main()
@@ -113,7 +124,7 @@ class DeploymentTests(unittest.TestCase):
             if method == 'PATCH':
                 patched.append(body)
                 return {}
-            return {'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': pod_env, **(patched[-1] if patched else {})}
+            return {'image': PREVIOUS, 'status': 'RUNNING', 'env': pod_env, **(patched[-1] if patched else {})}
 
         with patch.dict(os.environ, environment, clear=True), patch.object(deploy, 'api', side_effect=api), \
                 patch.object(deploy, 'check_transition'), patch.object(deploy, 'summary'), \
@@ -168,7 +179,7 @@ class DeploymentTests(unittest.TestCase):
 
     def deploy_against_fake_runpod(self, environment, pod_profile='bf16'):
         """Run the deploy command against a fake Runpod API and record what it touched."""
-        current = {'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': pod_profile, 'MAX_NUM_SEQS': '1'}}
+        current = {'image': PREVIOUS, 'status': 'RUNNING', 'env': {'MODEL_PROFILE': pod_profile, 'MAX_NUM_SEQS': '1'}}
         patched, paths, checker_env = {}, [], {}
 
         def api(method, path, body=None):
@@ -219,7 +230,7 @@ class DeploymentTests(unittest.TestCase):
             pod_env = {} if configured is None else {'MODEL_PROFILE': configured}
             with self.subTest(chosen=chosen, configured=configured), \
                     patch.dict(os.environ, {**both, 'DEPLOY_MODEL_PROFILE': chosen}, clear=True), \
-                    patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': pod_env}), \
+                    patch.object(deploy, 'api', return_value={'image': PREVIOUS, 'status': 'RUNNING', 'env': pod_env}), \
                     self.assertRaisesRegex(RuntimeError, 'MODEL_PROFILE=' + chosen):
                 deploy.main()
         apply.assert_not_called()
@@ -240,7 +251,7 @@ class DeploymentTests(unittest.TestCase):
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '4'}, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {
+    @patch.object(deploy, 'api', return_value={'image': PREVIOUS, 'status': 'RUNNING', 'env': {
         'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '8', 'CHAT_MAX_CONCURRENT': '8',
         'CHAT_MAX_WAITING': '24', 'CHAT_RATE_LIMIT_PER_MINUTE': '80'}})
     def test_new_concurrency_drops_old_gateway_slot_overrides_but_keeps_rate_limit(self, api, apply, summary):
@@ -251,7 +262,7 @@ class DeploymentTests(unittest.TestCase):
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1', 'CHAT_ENABLED': 'true', 'PRIVATE_VALUE': 'test-secret'}})
+    @patch.object(deploy, 'api', return_value={'image': PREVIOUS, 'status': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16', 'MAX_NUM_SEQS': '1', 'CHAT_ENABLED': 'true', 'PRIVATE_VALUE': 'test-secret'}})
     def test_concurrency_failure_restores_image_and_full_environment(self, api, apply, summary):
         apply.side_effect = [RuntimeError('failed'), None]
         with self.assertRaises(RuntimeError):
@@ -273,7 +284,7 @@ class DeploymentTests(unittest.TestCase):
 
     @patch.dict(os.environ, {**ENV, 'DEPLOY_MAX_NUM_SEQS': '2'}, clear=True)
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING'})
+    @patch.object(deploy, 'api', return_value={'image': PREVIOUS, 'status': 'RUNNING'})
     def test_missing_environment_is_rejected_without_mutation(self, api, apply):
         with self.assertRaises(RuntimeError):
             deploy.main()
@@ -284,16 +295,16 @@ class DeploymentTests(unittest.TestCase):
     @patch.object(deploy, 'api')
     def test_image_and_environment_are_sent_in_one_update(self, api, transition, run):
         environment = {'MAX_NUM_SEQS': '2', 'CHAT_ENABLED': 'true'}
-        api.side_effect = [{}, {'imageName': IMAGE, 'env': environment}]
+        api.side_effect = [{}, {'image': IMAGE, 'env': environment}]
         deploy.deploy_image('/pods/testpod', IMAGE, 'https://test.invalid', env=environment)
-        self.assertEqual(api.call_args_list[0].args, ('PATCH', '/pods/testpod', {'imageName': IMAGE, 'env': environment}))
+        self.assertEqual(api.call_args_list[0].args, ('PATCH', '/pods/testpod', {'image': IMAGE, 'env': environment}))
         transition.assert_called_once()
         run.assert_called_once()
 
     @patch.dict(os.environ, ENV, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
+    @patch.object(deploy, 'api', return_value={'image': PREVIOUS, 'status': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
     def test_failed_deploy_restores_previous_image(self, api, apply, summary):
         apply.side_effect = [RuntimeError('failed'), None]
         with self.assertRaises(RuntimeError):
@@ -304,7 +315,7 @@ class DeploymentTests(unittest.TestCase):
     @patch.dict(os.environ, ENV, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image', side_effect=RuntimeError('failed'))
-    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
+    @patch.object(deploy, 'api', return_value={'image': PREVIOUS, 'status': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
     def test_failed_rollback_is_reported(self, api, apply, summary):
         with self.assertRaises(RuntimeError):
             deploy.main()
@@ -319,7 +330,7 @@ class DeploymentTests(unittest.TestCase):
 
     @patch.dict(os.environ, ENV, clear=True)
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': PREVIOUS, 'desiredStatus': 'EXITED'})
+    @patch.object(deploy, 'api', return_value={'image': PREVIOUS, 'status': 'EXITED'})
     def test_stopped_pod_is_not_updated(self, api, apply):
         with self.assertRaises(RuntimeError):
             deploy.main()
@@ -364,7 +375,7 @@ class DeploymentTests(unittest.TestCase):
                             'DEPLOY_FIRST_OFFICIAL_RELEASE': 'true'}, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': IMAGE, 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
+    @patch.object(deploy, 'api', return_value={'image': IMAGE, 'status': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
     def test_first_bf16_release_can_retry_the_same_configured_digest(self, api, apply, summary):
         deploy.main()
         apply.assert_called_once()
@@ -376,7 +387,7 @@ class DeploymentTests(unittest.TestCase):
                             'DEPLOY_FIRST_OFFICIAL_RELEASE': 'true'}, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image', side_effect=RuntimeError('failure'))
-    @patch.object(deploy, 'api', return_value={'imageName': 'runpod/pytorch:old', 'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
+    @patch.object(deploy, 'api', return_value={'image': 'runpod/pytorch:old', 'status': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
     def test_first_bf16_failure_does_not_claim_an_official_rollback(self, api, apply, summary):
         with self.assertRaises(RuntimeError):
             deploy.main()
@@ -386,7 +397,7 @@ class DeploymentTests(unittest.TestCase):
     @patch.dict(os.environ, {'DEPLOY_MODEL_PROFILE': 'bf16'}, clear=True)
     @patch.object(deploy.subprocess, 'run')
     @patch.object(deploy, 'check_transition')
-    @patch.object(deploy, 'api', side_effect=[{}, {'imageName': IMAGE}])
+    @patch.object(deploy, 'api', side_effect=[{}, {'image': IMAGE}])
     def test_bf16_verification_uses_its_alias_and_long_startup_budget(self, api, transition, run):
         deploy.deploy_image('/pods/bf16pod', IMAGE, 'https://bf16.invalid')
         args = run.call_args.args[0]
@@ -399,8 +410,8 @@ class DeploymentTests(unittest.TestCase):
                             'RUNPOD_BF16_POD_ID': 'bf16pod', 'RUNPOD_BF16_CHAT_TOKEN': 'bf16-only'}, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
-    @patch.object(deploy, 'api', return_value={'imageName': 'zihan000/qwen-inference@sha256:' + 'b' * 64,
-                                            'desiredStatus': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
+    @patch.object(deploy, 'api', return_value={'image': 'zihan000/qwen-inference@sha256:' + 'b' * 64,
+                                            'status': 'RUNNING', 'env': {'MODEL_PROFILE': 'bf16'}})
     def test_later_bf16_failure_uses_the_same_official_image_rollback(self, api, apply, summary):
         apply.side_effect = [RuntimeError('failed'), None]
         with self.assertRaises(RuntimeError):
