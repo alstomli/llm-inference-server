@@ -146,7 +146,7 @@ silently reduce the requested context or concurrency if the trial cannot fit.
 
 The image's environment is authoritative for serving settings. The older
 [Template startup source](https://github.com/alstomli/llm-inference-server/tree/6685b0e/deployments/qwen-bf16) describes the preceding script-based setup; those retired launchers are no longer included. `config.json` remains a model-ID input to checkpoint preparation; serving settings come from the environment.
-`prepare_model.py` runs from the image, verifies the pinned checkpoint metadata,
+`scripts/prepare_model.py` (the `bf16` profile) runs from the image, verifies the pinned checkpoint metadata,
 and reuses staged files. Locks, temporary downloads, and caches remain local
 because the global volume does not provide POSIX locking/atomic rename.
 
