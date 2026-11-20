@@ -168,10 +168,10 @@ Deploy or run the monitoring services from their own repositories:
 - [llm-prometheus](https://github.com/alstomli/llm-prometheus): scrape target,
   retention settings, collector image, and local collector checks.
 
-Set `RUNPOD_METRICS_URL` explicitly to the BF16 relay origin. After a Pod
-migration, update the BF16 scrape target in Prometheus, `RUNPOD_BF16_CHAT_URL`
-in the frontend, and `RUNPOD_BF16_POD_ID` in the GitHub deployment environment.
-The checker has no hardcoded Pod endpoint. Retain the monitoring token privately
+Set `RUNPOD_METRICS_URL` explicitly to the relay origin you are checking; the
+checker has no hardcoded Pod endpoint. When a profile moves to another Pod,
+follow the [Pod migration runbook](docs/POD-MIGRATION.md), which lists every
+setting that names a Pod. Retain the monitoring token privately
 in `RUNPOD_METRICS_TOKEN` or the ignored `.secrets/metrics-token` file.
 
 Collector health checks live in the sibling Prometheus repository. Unit checks are `python scripts/test_metrics_relay.py`;
