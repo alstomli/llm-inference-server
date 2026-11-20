@@ -1,25 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# BF16 is the sole model profile; pass its default to every child service.
+# The Pod's profile (bf16 or 4bit) selects the model; pass it to every child service.
 profile="${MODEL_PROFILE-bf16}"
-[[ "$profile" == bf16 ]] || { echo 'MODEL_PROFILE must be bf16.' >&2; exit 1; }
+case "$profile" in
+  bf16)
+    export BF16_ROOT="${BF16_ROOT:-/workspace/qwen-bf16}"
+    model_root="$BF16_ROOT" label=BF16 weight_offload_gb="${CPU_OFFLOAD_GB:-40}"
+    ;;
+  4bit)
+    export QWEN_4BIT_ROOT="${QWEN_4BIT_ROOT:-/workspace/qwen-4bit}"
+    model_root="$QWEN_4BIT_ROOT" label=4-bit weight_offload_gb=0
+    # The 4-bit base has no adapter and keeps every weight on the GPU.
+    for setting in LORA_ADAPTER_PATH VLLM_BASE_MODEL_NAME MAX_LORA_RANK; do
+      [[ -z "${!setting:-}" ]] || { echo "The 4bit profile has no adapter; remove ${setting}." >&2; exit 1; }
+    done
+    [[ "${CPU_OFFLOAD_GB:-0}" == 0 ]] || {
+      echo 'The 4bit profile has no CPU weight offload; remove CPU_OFFLOAD_GB.' >&2; exit 1;
+    }
+    # FlashInfer JIT-compiles its FP8-KV decode kernel on SM120 at first start.
+    export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+    export PATH="$CUDA_HOME/bin:$PATH"
+    [[ -x "$CUDA_HOME/bin/nvcc" ]] && command -v ninja >/dev/null || {
+      echo 'The 4bit profile needs nvcc under CUDA_HOME and ninja on PATH to build FlashInfer kernels.' >&2; exit 1;
+    }
+    ;;
+  *) echo 'MODEL_PROFILE must be bf16 or 4bit.' >&2; exit 1 ;;
+esac
 export MODEL_PROFILE="$profile"
 export MAX_MODEL_LEN="${MAX_MODEL_LEN:-40960}"
 export MAX_NUM_SEQS="${MAX_NUM_SEQS-2}"
 # Every profile accepts any concurrency from 2 to 8.
 [[ "$MAX_NUM_SEQS" =~ ^[2-8]$ ]] || { echo 'MAX_NUM_SEQS must be an integer from 2 through 8.' >&2; exit 1; }
-export BF16_ROOT="${BF16_ROOT:-/workspace/qwen-bf16}"
 mountpoint -q /workspace || { echo '/workspace must be the attached persistent volume.' >&2; exit 1; }
-export MODEL_ID="$BF16_ROOT/model"
-export SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-qwen-bf16}"
-export HF_HOME=/opt/qwen-bf16/hf-cache
-export HF_XET_CACHE=/opt/qwen-bf16/xet-cache
+export MODEL_ID="$model_root/model"
+export SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-qwen-$profile}"
+# Caches stay on the container disk: the network volume refuses chmod.
+export HF_HOME="/opt/qwen-$profile/hf-cache"
+export HF_XET_CACHE="/opt/qwen-$profile/xet-cache"
 export HF_HUB_DISABLE_XET=1
 export HF_HUB_DISABLE_IMPLICIT_TOKEN=1
-export VLLM_CACHE_ROOT=/opt/qwen-bf16/vllm-cache
-exec 9>/tmp/qwen-bf16.lock
-flock -n 9 || { echo 'The BF16 deployment is already running.' >&2; exit 1; }
+export VLLM_CACHE_ROOT="/opt/qwen-$profile/vllm-cache"
+exec 9>"/tmp/qwen-$profile.lock"
+flock -n 9 || { echo "The $label deployment is already running." >&2; exit 1; }
 
 # The gateway targets SERVED_MODEL_NAME. With LoRA enabled that alias belongs to
 # the adapter, and the base must have a separate name in vLLM's model registry.
@@ -51,8 +74,13 @@ args=(serve "$MODEL_ID"
   --enable-prefix-caching
   --custom-histogram-buckets '{"time_to_first_token":[0.001,0.005,0.01,0.02,0.04,0.06,0.08,0.1,0.2,0.25,0.3,0.4,0.5,0.6,0.7,0.75,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0,2.1,2.2,2.3,2.4,2.5,2.6,2.7,2.8,2.9,3.0,3.1,3.2,3.3,3.4,3.5,3.6,3.7,3.8,3.9,4.0,4.1,4.2,4.3,4.4,4.5,4.6,4.7,4.8,4.9,5.0,5.1,5.2,5.3,5.4,5.5,5.6,5.7,5.8,5.9,6.0,6.1,6.2,6.3,6.4,6.5,6.6,6.7,6.8,6.9,7.0,7.1,7.2,7.3,7.4,7.5,7.6,7.7,7.8,7.9,8.0,8.1,8.2,8.3,8.4,8.5,8.6,8.7,8.8,8.9,9.0,9.1,9.2,9.3,9.4,9.5,9.6,9.7,9.8,9.9,10.0,20.0,40.0,80.0,160.0,640.0,2560.0]}'
   )
-args+=(--dtype bfloat16 --cpu-offload-gb "${CPU_OFFLOAD_GB:-40}"
-  --reasoning-parser qwen3
+if [[ "$profile" == bf16 ]]; then
+  args+=(--dtype bfloat16 --cpu-offload-gb "$weight_offload_gb")
+else
+  # The checkpoint ships a static per-tensor FP8 KV scheme; FP8 KV doubles the sessions that fit.
+  args+=(--kv-cache-dtype fp8)
+fi
+args+=(--reasoning-parser qwen3
   --safetensors-load-strategy eager --limit-mm-per-prompt '{"image":1,"video":0}')
 # Both features are opt-in. Weight offload is independent of the native KV tier.
 case "${KV_OFFLOAD_CPU_GIB:-0}" in
@@ -66,7 +94,7 @@ esac
 case "${CUDA_DECODE_GRAPHS:-false}" in
   false|0) args+=(--enforce-eager) ;;
   true|1)
-    [[ "${CPU_OFFLOAD_GB:-40}" == 0 ]] || {
+    [[ "$weight_offload_gb" == 0 ]] || {
       echo 'Decode graphs require zero weight offload.' >&2; exit 1;
     }
     # Capture powers of two below the concurrency, then the concurrency itself;
@@ -112,7 +140,7 @@ if [[ "${CHAT_WEB_SEARCH_ENABLED:-false}" == true ]]; then
 fi
 
 start_model() {
-  python3 /usr/local/lib/prepare-bf16-model.py
+  python3 /usr/local/lib/prepare-model.py
   exec vllm "${args[@]}"
 }
 if [[ -n "${VLLM_API_KEY:-}" ]]; then

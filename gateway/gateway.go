@@ -32,8 +32,12 @@ type Gateway struct {
 }
 
 func New(c Config) (*Gateway, error) {
-	if c.ModelProfile != "bf16" {
-		return nil, errors.New("MODEL_PROFILE must be bf16")
+	selected, ok := profiles[c.ModelProfile]
+	if !ok {
+		return nil, errProfile
+	}
+	if !selected.adapter && c.BaseModel != "" {
+		return nil, noAdapter(c.ModelProfile)
 	}
 	if len([]rune(c.Token)) < 32 {
 		return nil, errors.New("a chat token of at least 32 characters is required")

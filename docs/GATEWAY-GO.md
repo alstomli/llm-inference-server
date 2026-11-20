@@ -26,9 +26,11 @@ Existing environment variables and the token file remain the interface:
 `VLLM_BASE_MODEL_NAME`, `CHAT_REQUIRE_USER_ID`, `CHAT_USER_MAX_CONCURRENT`,
 `CHAT_USER_MAX_WAITING`, and `CHAT_USER_RATE_LIMIT_PER_MINUTE`.
 
-`MODEL_PROFILE` defaults to `bf16`; both gateway implementations reject other
-profiles. `SERVED_MODEL_NAME` defaults to `qwen-bf16`. BF16 base and adapter
-aliases remain configurable.
+`MODEL_PROFILE` is `bf16` (default) or `4bit`; both gateway implementations reject
+other profiles. `SERVED_MODEL_NAME` defaults to the profile's alias, `qwen-bf16` or
+`qwen-4bit`. BF16 base and adapter aliases remain configurable; the `4bit` profile has
+no adapter, refuses `LORA_ADAPTER_PATH` and `VLLM_BASE_MODEL_NAME`, and answers
+`useAdapter` requests with 400.
 
 The bearer secret is read at process startup. Next.js authenticates the user
 through Supabase and sends `X-Chat-User-Id`; the gateway accepts that identity

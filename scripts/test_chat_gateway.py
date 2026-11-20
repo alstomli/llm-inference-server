@@ -430,14 +430,28 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.model_cards = [{'id': 'qwen-bf16-base', 'max_model_len': 40960}, {'id': 'qwen-bf16', 'parent': 'qwen-bf16-base'}]
         await self.configure(base_model='qwen-bf16-base', **options)
 
-    async def test_bf16_is_default_and_retired_profiles_fail_before_upstream(self):
+    async def test_bf16_is_default_and_unknown_profiles_fail_before_upstream(self):
         health = (await self.client.get('/health', headers=user_auth())).json()
         self.assertEqual(health['model'], 'qwen-bf16')
         before = (self.model_requests, self.tokenizer_requests, len(self.forwarded))
-        for profile in ('4bit', 'unknown', '', None):
+        for profile in ('4BIT', 'unknown', '', None):
             with self.subTest(profile=profile), self.assertRaises(ValueError):
                 gateway.create_app(TOKEN, model_profile=profile, transport=self.transport)
         self.assertEqual((self.model_requests, self.tokenizer_requests, len(self.forwarded)), before)
+
+    async def test_4bit_serves_one_alias_with_vision_and_rejects_adapter_requests(self):
+        with self.assertRaisesRegex(ValueError, 'adapter'):
+            gateway.create_app(TOKEN, model='qwen-4bit', base_model='qwen-4bit-base',
+                               model_profile='4bit', transport=self.transport)
+        self.model_cards = [{'id': 'qwen-4bit', 'max_model_len': 40960}]
+        await self.configure(model='qwen-4bit', model_profile='4bit', image_input_enabled=True)
+        health = (await self.client.get('/health', headers=user_auth())).json()
+        self.assertEqual(health['model'], 'qwen-4bit')
+        self.assertFalse(health['adapterToggleAvailable'])
+        self.assertEqual(health['imageInputVersion'], 1)
+        self.assertEqual((await self.send(useAdapter=True)).status_code, 400)
+        response = await self.send(image=image_uri())
+        self.assertEqual(response.headers.get('X-Chat-Image-Accepted'), 'true')
 
     async def test_image_input_requires_bf16_and_opt_in(self):
         image = image_uri()

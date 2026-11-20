@@ -2,7 +2,7 @@
 """Authenticated, streaming chat-only ingress for the private vLLM server."""
 import asyncio
 import base64
-from collections import deque
+from collections import deque, namedtuple
 from contextlib import asynccontextmanager
 import hmac
 import math
@@ -241,12 +241,18 @@ def capacity_from_env():
     return concurrency, integer('CHAT_MAX_WAITING', 3 * concurrency), integer('CHAT_RATE_LIMIT_PER_MINUTE', 20)
 
 
+Profile = namedtuple('Profile', 'alias adapter')
+PROFILES = {'bf16': Profile('qwen-bf16', adapter=True), '4bit': Profile('qwen-4bit', adapter=False)}
+
+
 def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', context=40960, transport=None,
                diagnostics_enabled=None, concurrency=None, base_model=None, model_profile='bf16', image_input_enabled=False,
                require_user_id=None, user_concurrency=None, user_queue_limit=None, user_rate_limit=None,
                queue_limit=None, rate_limit=None):
-    if model_profile != 'bf16':
-        raise ValueError('MODEL_PROFILE must be bf16')
+    if model_profile not in PROFILES:
+        raise ValueError('MODEL_PROFILE must be bf16 or 4bit')
+    if not PROFILES[model_profile].adapter and base_model is not None:
+        raise ValueError(f'The {model_profile} profile has no adapter')
     if base_model is not None and (not isinstance(base_model, str) or not base_model or base_model == model):
         raise ValueError('Base and adapter aliases must be distinct')
     if not isinstance(token, str) or len(token) < 32:
@@ -673,8 +679,9 @@ def create_app(token, upstream='http://127.0.0.1:8000', model='qwen-bf16', conte
 if __name__ == '__main__':
     import uvicorn
     secret = Path(os.environ.get('CHAT_TOKEN_FILE', '/workspace/chat/chat-token')).read_text().strip()
-    app = create_app(secret, model=os.environ.get('SERVED_MODEL_NAME', 'qwen-bf16'),
-                     base_model=(os.environ.get('VLLM_BASE_MODEL_NAME') or os.environ.get('SERVED_MODEL_NAME', 'qwen-bf16') + '-base') if os.environ.get('LORA_ADAPTER_PATH') else None,
+    alias = os.environ.get('SERVED_MODEL_NAME', PROFILES.get(os.environ.get('MODEL_PROFILE', 'bf16'), PROFILES['bf16']).alias)
+    app = create_app(secret, model=alias,
+                     base_model=(os.environ.get('VLLM_BASE_MODEL_NAME') or alias + '-base') if os.environ.get('LORA_ADAPTER_PATH') else None,
                      upstream='http://127.0.0.1:' + os.environ.get('VLLM_PORT', '8000'),
                      context=int(os.environ.get('MAX_MODEL_LEN', '40960')),
                      model_profile=os.environ.get('MODEL_PROFILE', 'bf16'),
