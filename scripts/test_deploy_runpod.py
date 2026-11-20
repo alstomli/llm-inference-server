@@ -301,6 +301,30 @@ class DeploymentTests(unittest.TestCase):
         transition.assert_called_once()
         run.assert_called_once()
 
+    @patch.object(deploy.subprocess, 'run')
+    @patch.object(deploy, 'check_transition')
+    @patch.object(deploy, 'api')
+    def test_runpod_omitting_empty_settings_still_matches_the_requested_environment(self, api, transition, run):
+        # Web staging clears CHAT_WEB_SEARCH_VERIFIED_MODEL to ''; Runpod v2 reports env without it.
+        environment = {'MAX_NUM_SEQS': '2', 'CHAT_WEB_SEARCH_VERIFIED_MODEL': ''}
+        api.side_effect = [{}, {'image': IMAGE, 'env': {'MAX_NUM_SEQS': '2'}}]
+        deploy.deploy_image('/pods/testpod', IMAGE, 'https://test.invalid', env=environment)
+        run.assert_called_once()
+
+    @patch.object(deploy.time, 'sleep')
+    @patch.object(deploy.time, 'monotonic', side_effect=[0, 1, 500])
+    @patch.object(deploy, 'check_transition')
+    @patch.object(deploy, 'api')
+    def test_environment_mismatch_names_the_differing_settings_without_values(self, api, transition, clock, sleep):
+        environment = {'MAX_NUM_SEQS': '2', 'TAVILY_API_KEY': 'fixture-secret'}
+        api.side_effect = [{}, {'image': IMAGE, 'env': {'MAX_NUM_SEQS': '3'}}]
+        with self.assertRaises(RuntimeError) as raised:
+            deploy.deploy_image('/pods/testpod', IMAGE, 'https://test.invalid', env=environment)
+        message = str(raised.exception)
+        self.assertIn('MAX_NUM_SEQS', message)
+        self.assertIn('TAVILY_API_KEY', message)
+        self.assertNotIn('fixture-secret', message)
+
     @patch.dict(os.environ, ENV, clear=True)
     @patch.object(deploy, 'summary')
     @patch.object(deploy, 'deploy_image')
