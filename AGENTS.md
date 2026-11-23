@@ -14,7 +14,7 @@ Default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-huma
 
 ### Pod migration
 
-Moving a profile to another Pod, or finding where a Pod ID is configured: follow `docs/POD-MIGRATION.md`. Four of its settings live in hosted services, outside any repo.
+Moving a profile to another Pod, or finding where a Pod ID is configured: follow `docs/POD-MIGRATION.md`. Three of its settings live in hosted services, outside any repo.
 
 ### Domain docs
 
