@@ -32,18 +32,18 @@ Use this when a profile (`bf16` or `4bit`) moves to another Pod: its machine is 
 Notes per row:
 
 - **Vercel:** each environment holds its own variables, so check Production and Preview separately. The chat token (`RUNPOD_<PROFILE>_CHAT_TOKEN`) changes only when the token file changed; the user enters it. A settings change reaches the site only after a Production redeploy, and Vercel asks the user for an emailed code to redeploy.
-- **Railway:** the value is the bare Pod ID; startup adds `-8889.proxy.runpod.net` and the `profile` label, and refuses a hostname or URL. Change only the moved profile's ID and keep the other one set: with only one ID set, Prometheus stops scraping the other profile. A variable change is staged until the service is deployed.
-- **This repo:** one branch and one PR. `llm-prometheus`, `llm-grafana` and the live Grafana dashboard need no change.
+- **Railway:** these variables share their names with the `prod` ones but are set separately. The value is the bare Pod ID; startup adds `-8889.proxy.runpod.net` and the `profile` label, and refuses a hostname or URL. Change only the moved profile's ID and keep the other one set: with only one ID set, Prometheus stops scraping the other profile. A variable change is staged until the service is deployed.
+- **`CURRENT.md`:** one branch and one PR in this repo. `llm-prometheus`, `llm-grafana` and the live Grafana dashboard need no change.
 
 ## Verify
 
 - Prometheus lists `<new-pod>-8889.proxy.runpod.net` with the moved profile's `profile` label and health `up`: read `/api/v1/targets` through Grafana's data source proxy (`/api/datasources/proxy/uid/prometheus/api/v1/targets`, on the site named by `BASE` in `llm-grafana/scripts/check-deployment.py`, with the login in `llm-grafana/.secrets/railway-grafana.env`). The other profile's target is still listed; it is down if its Pod is stopped.
-- The monitoring check passes for the moved profile, run in `llm-grafana`:
+- The Grafana deployment check passes for the moved profile, run in `llm-grafana`:
 
   ```bash
   python scripts/check-deployment.py --profile <bf16|4bit>
   ```
-- The `inference-baseline` dashboard, opened without a `var-pod` in its URL, shows the new Pod once that profile is selected under **Profile** (it opens on `4bit`). A URL that names the old Pod can still open on it, and the old Pod stays selectable while the time range covers its data.
+- The `inference-baseline` dashboard, opened without a `var-pod` in its URL, shows the new Pod once that profile is selected under **Profile** (it opens on `4bit`). Allow the new target a minute or two of scrapes first. A URL that names the old Pod can still open on it, and the old Pod stays selectable while the time range covers its data.
 - The live chat site reports the model ready: `/api/status?model=<bf16|4bit>` from a signed-in browser session returns `"ready": true`.
 - Stop the old Pod; it stays stopped, never terminated, until the user decides otherwise:
 
