@@ -6,7 +6,7 @@ Accepted **November 20, 2026** on its own Pod (`kdm8qghqezo72e`, since replaced;
 
 | Item | Value |
 | --- | --- |
-| Pod / GPU | `8l7n75h7m4tma8` / NVIDIA RTX PRO 4500 Blackwell (32 GB), 1 GPU, EU-CZ-1 |
+| Pod / GPU | `stfd3sdb8furvq` / NVIDIA RTX PRO 4500 Blackwell (32 GB), 1 GPU, EU-CZ-1 |
 | Volume | global network volume `melodic_lavender_mandrill` at `/workspace` |
 | Release | `0.22.0`, built from [`611fcaf`](https://github.com/alstomli/llm-inference-server/commit/611fcaf5669ddcdd21fd547bf18e03a93e11d219) by the [release run](https://github.com/alstomli/llm-inference-server/actions/runs/44677730887) |
 | Image | `zihan000/qwen-inference@sha256:76d381db56d038f79745f5f36a6f1a2cbaae3d66e922be6a75a4ca8e2c23ec06` |
@@ -57,3 +57,7 @@ Before enabling web search, `qwen-4bit` was checked against the Pod's private vL
 On November 20, 2026 the 4bit workload moved from `kdm8qghqezo72e` to `8l7n75h7m4tma8` because the old Pod's machine was no longer available. The new Pod has the same GPU type, data center, ports and global network volume, so the model, chat token and metrics token carried over on the volume. Its image and environment were copied from the old Pod (the new Pod keeps its own Jupyter password and SSH key) and it passed the live chat check at 6 active / 18 waiting and the metrics relay check. The acceptance figures above were measured on the old Pod with the same image and settings.
 
 Updated with the move: `prod` variable `RUNPOD_4BIT_POD_ID`, the Railway Prometheus `RUNPOD_METRICS_TARGETS` (the new target reports up), and the live Grafana Pod picker, which now lists every vLLM Pod and defaults to this one. The old Pod is stopped, not terminated. The hosted qwen-chat on Vercel had no 4bit gateway binding before the move, so the frontend is set up for this Pod rather than moved to it.
+
+On November 23, 2026 the 4bit workload moved from `8l7n75h7m4tma8` to `stfd3sdb8furvq`. The new Pod has the same GPU type, data center, ports, global network volume, image and settings. It passed the live chat check at 6 active / 18 waiting and the metrics relay check. The acceptance figures above were not re-measured.
+
+Updated with this move: `prod` variable `RUNPOD_4BIT_POD_ID`, the Railway Prometheus `RUNPOD_METRICS_TARGETS` and the live Grafana Pod picker default. The old Pod is stopped, not terminated. The hosted qwen-chat `RUNPOD_4BIT_CHAT_URL` on Vercel (Production and Preview) was still pending when this note was written.
