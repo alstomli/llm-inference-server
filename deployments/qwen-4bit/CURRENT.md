@@ -60,4 +60,4 @@ Updated with the move: `prod` variable `RUNPOD_4BIT_POD_ID`, the Railway Prometh
 
 On November 23, 2026 the 4bit workload moved from `8l7n75h7m4tma8` to `stfd3sdb8furvq`. The new Pod has the same GPU type, data center, ports, global network volume, image and settings. It passed the live chat check at 6 active / 18 waiting and the metrics relay check. The acceptance figures above were not re-measured.
 
-Updated with this move: `prod` variable `RUNPOD_4BIT_POD_ID`, the Railway Prometheus `RUNPOD_METRICS_TARGETS` and the live Grafana Pod picker default. The old Pod is stopped, not terminated. The hosted qwen-chat `RUNPOD_4BIT_CHAT_URL` on Vercel (Production and Preview) was still pending when this note was written.
+Updated with this move: `prod` variable `RUNPOD_4BIT_POD_ID`, the Railway Prometheus `RUNPOD_METRICS_TARGETS` and the live Grafana Pod picker default. The old Pod is stopped, not terminated. The hosted qwen-chat `RUNPOD_4BIT_CHAT_URL` on Vercel Production was also updated; Preview has no 4bit binding.
